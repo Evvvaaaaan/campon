@@ -13,6 +13,9 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'planner/plan_models.dart';
+import 'planner/planner_input_screen.dart';
+import 'planner/planner_result_screen.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -95,6 +98,8 @@ enum AppStep {
   onboardingPreferences,
   recommendations,
   settings,
+  plannerInput,
+  plannerResult,
 }
 
 enum DetailEntry { recommendations, browse }
@@ -129,6 +134,10 @@ class _CampOnShellState extends State<CampOnShell> {
 
   Future<List<Campsite>>? _recommendationsFuture;
   Future<List<Campsite>>? _browseFuture;
+
+  CampPlan? _plan;
+  List<Campsite> _planCandidates = <Campsite>[];
+  List<String> _aiChecklistItems = const <String>[];
 
   @override
   void initState() {
@@ -194,6 +203,46 @@ class _CampOnShellState extends State<CampOnShell> {
     setState(() => _step = AppStep.settings);
   }
 
+  Future<void> _goPlanner() async {
+    if (_planCandidates.isEmpty) {
+      try {
+        _planCandidates =
+            await _api.fetchNearby(region: _region, page: 0, size: 10);
+      } catch (_) {
+        // Planner still works with region-based fallback when candidates fail.
+      }
+    }
+    if (mounted) {
+      setState(() => _step = AppStep.plannerInput);
+    }
+  }
+
+  String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  PlanInput _buildPlanInput() {
+    final date = _date ?? DateTime.now();
+    return PlanInput(
+      query: '',
+      date: _isoDate(date),
+      people: _people,
+      hasCar: _hasCar ?? true,
+      experience: _skillLevel ?? '초보',
+      region: _region.name,
+      lat: _region.lat,
+      lon: _region.lon,
+      preferences: _preferences.toList(),
+      equipment: _equipment.toList(),
+      candidates: _planCandidates
+          .map((s) => PlanCandidate(
+                name: s.name,
+                facility: s.facility,
+                equipmentRental: s.equipmentRental,
+              ))
+          .toList(),
+    );
+  }
+
   void _back() {
     setState(() {
       switch (_step) {
@@ -207,6 +256,10 @@ class _CampOnShellState extends State<CampOnShell> {
               : AppStep.recommendations;
         case AppStep.community:
           _step = AppStep.details;
+        case AppStep.plannerResult:
+          _step = AppStep.plannerInput;
+        case AppStep.plannerInput:
+          _step = AppStep.home;
         case AppStep.loading:
         case AppStep.home:
         case AppStep.login:
@@ -426,7 +479,11 @@ class _CampOnShellState extends State<CampOnShell> {
           showDevLogin: AuthConfig.devLoginVisible,
         );
       case AppStep.home:
-        return HomeScreen(onStart: _startOnboarding, onBrowse: _goBrowse);
+        return HomeScreen(
+          onStart: _startOnboarding,
+          onBrowse: _goBrowse,
+          onPlanner: _goPlanner,
+        );
       case AppStep.onboardingBasics:
         return BasicsScreen(
           date: _date,
@@ -492,6 +549,7 @@ class _CampOnShellState extends State<CampOnShell> {
           selectedSite: _selectedSite,
           ownedEquipment: _equipment,
           checkedItems: _checkedItems,
+          aiItems: _aiChecklistItems,
           onToggle: (key) => _toggleSetValue(_checkedItems, key),
           onReset: _reset,
         );
@@ -500,6 +558,25 @@ class _CampOnShellState extends State<CampOnShell> {
           api: _api,
           site: _selectedSite,
           onBack: _back,
+        );
+      case AppStep.plannerInput:
+        return PlannerInputScreen(
+          prefill: _buildPlanInput(),
+          onBack: _goHome,
+          onGenerated: (plan) => setState(() {
+            _plan = plan;
+            _step = AppStep.plannerResult;
+          }),
+        );
+      case AppStep.plannerResult:
+        return PlannerResultScreen(
+          plan: _plan!,
+          onBack: () => setState(() => _step = AppStep.plannerInput),
+          onRegenerate: () => setState(() => _step = AppStep.plannerInput),
+          onSendToChecklist: (items) => setState(() {
+            _aiChecklistItems = items;
+            _step = AppStep.checklist;
+          }),
         );
       case AppStep.settings:
         return SettingsScreen(
@@ -930,10 +1007,16 @@ class SocialLoginButton extends StatelessWidget {
 }
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({required this.onStart, required this.onBrowse, super.key});
+  const HomeScreen({
+    required this.onStart,
+    required this.onBrowse,
+    required this.onPlanner,
+    super.key,
+  });
 
   final VoidCallback onStart;
   final VoidCallback onBrowse;
+  final VoidCallback onPlanner;
 
   @override
   Widget build(BuildContext context) {
@@ -1015,7 +1098,7 @@ class HomeScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        '조건에 맞는 캠핑장 추천부터 준비물 확인까지 한 흐름으로 이어집니다.',
+                        'AI에게 한 줄만 적으면 캠핑장·날씨·준비물·타임라인까지 한 번에 만들어 드려요.',
                         style: CampText.caption.copyWith(
                           fontSize: 13,
                           color: CampColors.greenTint,
@@ -1023,9 +1106,9 @@ class HomeScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 14),
                       CampButton(
-                        label: '추천부터 준비까지 한 흐름',
-                        icon: LucideIcons.shuffle,
-                        onPressed: onStart,
+                        label: 'AI로 캠핑 플랜 짜기',
+                        icon: LucideIcons.sparkles,
+                        onPressed: onPlanner,
                       ),
                     ],
                   ),
@@ -1665,12 +1748,14 @@ class ChecklistScreen extends StatelessWidget {
     required this.checkedItems,
     required this.onToggle,
     required this.onReset,
+    this.aiItems = const <String>[],
     super.key,
   });
 
   final Campsite? selectedSite;
   final Set<String> ownedEquipment;
   final Set<String> checkedItems;
+  final List<String> aiItems;
   final ValueChanged<String> onToggle;
   final VoidCallback onReset;
 
@@ -1727,6 +1812,47 @@ class ChecklistScreen extends StatelessWidget {
           Text(
             '${selectedSite!.name} 기준으로 준비하고 있어요.',
             style: CampText.caption.copyWith(color: CampColors.inkMuted48),
+          ),
+        ],
+        if (aiItems.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const FormLabel('AI 추천 준비물', color: CampColors.primaryDark),
+          CampCard(
+            padding: const EdgeInsets.all(16),
+            backgroundColor: CampColors.greenTint,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(LucideIcons.sparkles,
+                        size: 16, color: CampColors.forest),
+                    const SizedBox(width: 6),
+                    Text('AI 플래너가 이번 캠핑에 맞춰 추천했어요',
+                        style: CampText.captionStrong
+                            .copyWith(color: CampColors.forest)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final item in aiItems)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: CampColors.surface,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: CampColors.hairline),
+                        ),
+                        child: Text(item, style: CampText.caption),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
         if (missingGear.isNotEmpty) ...[
