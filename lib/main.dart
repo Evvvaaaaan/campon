@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,6 +14,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'motion/motion.dart';
 import 'planner/plan_models.dart';
 import 'planner/planner_input_screen.dart';
 import 'planner/planner_result_screen.dart';
@@ -1471,12 +1473,21 @@ class CampsiteListScreen extends StatelessWidget {
             }
             return Column(
               children: [
-                for (final site in sites) ...[
+                for (var i = 0; i < sites.length; i++) ...[
                   CampsiteCard(
-                    site: site,
+                    site: sites[i],
                     showScore: entry == DetailEntry.recommendations,
-                    onTap: () => onSelect(site),
-                  ),
+                    onTap: () => onSelect(sites[i]),
+                  )
+                      .animate()
+                      .fadeIn(duration: 320.ms, delay: (60 * i).ms)
+                      .slideY(
+                        begin: 0.1,
+                        end: 0,
+                        duration: 320.ms,
+                        delay: (60 * i).ms,
+                        curve: Curves.easeOutCubic,
+                      ),
                   const SizedBox(height: 12),
                 ],
               ],
@@ -3197,16 +3208,16 @@ class LoadingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 40),
-      child: Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: CampColors.primary,
-          ),
-        ),
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Shimmer(height: 132),
+          SizedBox(height: 12),
+          Shimmer(height: 132),
+          SizedBox(height: 12),
+          Shimmer(height: 132),
+        ],
       ),
     );
   }
