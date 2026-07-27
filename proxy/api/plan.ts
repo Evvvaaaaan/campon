@@ -1,41 +1,36 @@
-import { fetchWeather } from './_weather.ts';
-import { buildPrompt, coercePlan, buildFallbackPlan, type PlanRequest } from './_plan_core.ts';
+import {
+  app,
+  type HttpRequest,
+  type HttpResponseInit,
+  type InvocationContext,
+} from '@azure/functions';
 
-const MODEL = 'gemini-2.0-flash';
+import { generatePlan } from './_handler.ts';
+import type { PlanRequest } from './_plan_core.ts';
 
-async function callGemini(prompt: string): Promise<unknown> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal: AbortSignal.timeout(25000),
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, responseMimeType: 'application/json' },
-    }),
-  });
-  if (!res.ok) return null;
-  const j: any = await res.json();
-  const text = j?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text !== 'string') return null;
-  try { return JSON.parse(text); } catch { return null; }
-}
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
-export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
+export async function planHandler(
+  request: HttpRequest,
+  _context: InvocationContext,
+): Promise<HttpResponseInit> {
+  if (request.method === 'OPTIONS') return { status: 204, headers: cors };
   try {
-    const body: PlanRequest = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const weather = await fetchWeather(body.coords.lat, body.coords.lon, body.context.date);
-    const raw = await callGemini(buildPrompt(body, weather));
-    const plan = raw ? coercePlan(raw, body, weather) : buildFallbackPlan(body, weather);
-    return res.status(200).json({ plan, source: raw ? 'llm' : 'fallback' });
+    const body = (await request.json()) as PlanRequest;
+    const result = await generatePlan(body);
+    return { status: 200, jsonBody: result, headers: cors };
   } catch (e) {
-    return res.status(200).json({ plan: null, error: String(e) });
+    return { status: 200, jsonBody: { plan: null, error: String(e) }, headers: cors };
   }
 }
+
+app.http('plan', {
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'plan',
+  handler: planHandler,
+});

@@ -3,12 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/plan.js",
   "scripts": {
     "test": "node --test",
-    "dev": "vercel dev"
+    "build": "esbuild api/plan.ts --bundle --platform=node --format=esm --outfile=dist/plan.js --external:@azure/functions",
+    "start": "npm run build && func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.5.0"
   }
 }

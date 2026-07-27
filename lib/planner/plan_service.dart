@@ -5,9 +5,11 @@ import 'plan_models.dart';
 
 typedef PlanFetcher = Future<String> Function(Uri url, String body);
 
+// Azure Functions host. The real name is confirmed at deploy time and can be
+// overridden with --dart-define=PLAN_PROXY_URL=https://<app>.azurewebsites.net
 const _defaultBase = String.fromEnvironment(
   'PLAN_PROXY_URL',
-  defaultValue: 'https://campon-ai-proxy.vercel.app',
+  defaultValue: 'https://campon-ai-proxy.azurewebsites.net',
 );
 
 Future<String> _httpFetcher(Uri url, String body) async {
