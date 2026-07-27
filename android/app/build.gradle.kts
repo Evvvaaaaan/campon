@@ -29,7 +29,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["kakaoScheme"] =
-            (project.findProperty("KAKAO_SCHEME") as String?) ?: "kakao735b945f18caa332a29deddf87c80bb8"
+            (project.findProperty("KAKAO_SCHEME") as String?) ?: "kakao0ecef49f91608f40010f59053f36fa9a"
     }
 
     buildTypes {
