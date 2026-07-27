@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../motion/motion.dart';
@@ -153,15 +154,24 @@ class _IntroCard extends StatelessWidget {
         color: CampColors.forest,
         borderRadius: BorderRadius.circular(18),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text('한 줄이면 충분해요',
-              style: CampText.display.copyWith(color: CampColors.onPrimary, fontSize: 24)),
-          const SizedBox(height: 10),
-          Text('원하는 캠핑을 자유롭게 적어주세요.\n캠핑장·날씨·준비물·타임라인을 한 번에 만들어 드릴게요.',
-              style: CampText.body.copyWith(
-                  color: CampColors.onPrimary.withValues(alpha: 0.86))),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('한 줄이면 충분해요',
+                    style: CampText.display
+                        .copyWith(color: CampColors.onPrimary, fontSize: 24)),
+                const SizedBox(height: 10),
+                Text('원하는 캠핑을 자유롭게 적어주세요.\n캠핑장·날씨·준비물·타임라인을 한 번에 만들어 드릴게요.',
+                    style: CampText.body.copyWith(
+                        color: CampColors.onPrimary.withValues(alpha: 0.86))),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SvgPicture.asset('assets/illustrations/planner_hero.svg', height: 92),
         ],
       ),
     );

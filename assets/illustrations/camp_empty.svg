@@ -1,0 +1,30 @@
+<svg width="240" height="176" viewBox="0 0 240 176" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- moon -->
+  <circle cx="188" cy="44" r="20" fill="#F0D9BE"/>
+  <circle cx="180" cy="40" r="20" fill="#FBF8F0"/>
+  <!-- stars -->
+  <circle cx="56" cy="34" r="2.5" fill="#C9BB98"/>
+  <circle cx="92" cy="22" r="2" fill="#C9BB98"/>
+  <circle cx="132" cy="40" r="1.8" fill="#C9BB98"/>
+  <circle cx="40" cy="66" r="1.8" fill="#C9BB98"/>
+  <!-- back pine -->
+  <path d="M58 132 L74 92 L90 132 Z" fill="#2C4A38"/>
+  <path d="M62 116 L74 78 L86 116 Z" fill="#2C4A38"/>
+  <rect x="71" y="130" width="6" height="12" rx="2" fill="#9C5620"/>
+  <!-- front pine -->
+  <path d="M150 138 L170 88 L190 138 Z" fill="#1E3A2B"/>
+  <path d="M156 118 L170 74 L184 118 Z" fill="#1E3A2B"/>
+  <rect x="166" y="136" width="8" height="14" rx="2" fill="#9C5620"/>
+  <!-- ground -->
+  <rect x="12" y="142" width="216" height="12" rx="6" fill="#DCE6DA"/>
+  <!-- tent -->
+  <path d="M96 142 L124 96 L152 142 Z" fill="#C1702F"/>
+  <path d="M124 96 L152 142 L138 142 Z" fill="#9C5620"/>
+  <path d="M124 142 L124 108 L134 142 Z" fill="#F0D9BE"/>
+  <!-- tent guy line -->
+  <path d="M96 142 L86 150" stroke="#9C5620" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M152 142 L162 150" stroke="#9C5620" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- campfire -->
+  <ellipse cx="196" cy="146" rx="12" ry="4" fill="#F0D9BE"/>
+  <path d="M196 128 C202 134 200 140 196 142 C192 140 190 134 196 128 Z" fill="#C1702F"/>
+</svg>

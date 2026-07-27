@@ -3260,9 +3260,13 @@ class EmptyPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return CampCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(text, style: CampText.bodyStrong),
+          SvgPicture.asset(
+            'assets/illustrations/camp_empty.svg',
+            height: 132,
+          ),
+          const SizedBox(height: 12),
+          Text(text, style: CampText.bodyStrong, textAlign: TextAlign.center),
           const SizedBox(height: 12),
           CampButton.secondary(label: '다시 시도', onPressed: onRetry),
         ],
