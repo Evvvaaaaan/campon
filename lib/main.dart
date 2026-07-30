@@ -14,6 +14,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'campsites/campsite_pagination.dart';
 import 'location/location_service.dart';
 import 'motion/motion.dart';
 import 'planner/plan_models.dart';
@@ -202,7 +203,7 @@ class _CampOnShellState extends State<CampOnShell> {
 
   void _goBrowse() {
     setState(() {
-      _browseFuture ??= _api.fetchNearby(region: _region, page: 0, size: 20);
+      _browseFuture ??= _api.fetchAllNearby(region: _region);
       _step = AppStep.browse;
     });
   }
@@ -4071,6 +4072,22 @@ class CampOnApi {
     return _fetchCampsites(uri);
   }
 
+  static const _regionAggregateRadius = 20000;
+  static const _regionAggregatePageSize = 100;
+
+  Future<List<Campsite>> fetchAllNearby({required CampRegion region}) {
+    return aggregateAllPages<Campsite>((page) {
+      final uri = _buildUri('/api/v1/campsites/nearby', <String, String>{
+        'lat': region.lat.toString(),
+        'lon': region.lon.toString(),
+        'radius': '$_regionAggregateRadius',
+        'size': '$_regionAggregatePageSize',
+        'page': '$page',
+      });
+      return _fetchCampsitesPage(uri);
+    });
+  }
+
   Future<List<Campsite>> fetchRecommendations({
     required CampRegion region,
     required DateTime date,
@@ -4101,7 +4118,7 @@ class CampOnApi {
     return _fetchCampsites(uri);
   }
 
-  Future<List<Campsite>> _fetchCampsites(Uri uri) async {
+  Future<PageResult<Campsite>> _fetchCampsitesPage(Uri uri) async {
     final client = HttpClient();
     try {
       final request = await client.getUrl(uri).timeout(_timeout);
@@ -4129,12 +4146,12 @@ class CampOnApi {
       }
       final items = decoded['items'];
       if (items is! List) {
-        return <Campsite>[];
+        return (items: <Campsite>[], hasNext: false);
       }
-      return items
-          .whereType<Map<String, dynamic>>()
-          .map(Campsite.fromJson)
-          .toList();
+      return (
+        items: items.whereType<Map<String, dynamic>>().map(Campsite.fromJson).toList(),
+        hasNext: decoded['hasNext'] == true,
+      );
     } on SocketException catch (error) {
       throw CampOnApiException('Network error: ${error.message}');
     } on TimeoutException {
@@ -4144,6 +4161,11 @@ class CampOnApi {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<List<Campsite>> _fetchCampsites(Uri uri) async {
+    final page = await _fetchCampsitesPage(uri);
+    return page.items;
   }
 
   Future<List<CampPost>> fetchPosts({
