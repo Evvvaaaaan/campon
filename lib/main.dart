@@ -11,9 +11,11 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'campsites/campsite_map_view.dart';
 import 'campsites/campsite_pagination.dart';
 import 'location/location_service.dart';
 import 'motion/motion.dart';
@@ -47,12 +49,21 @@ Future<void> _initializeNativeSdks() async {
     debugPrint('[KakaoSdk] init 실패: $error');
     debugPrint('[KakaoSdk] Stack trace:\n$stackTrace');
   }
+
+  if (AuthConfig.kakaoJavascriptKey.isEmpty) {
+    debugPrint('[KakaoMap] KAKAO_JAVASCRIPT_KEY가 비어 있어 지도 초기화를 건너뜁니다.');
+    return;
+  }
+  AuthRepository.initialize(appKey: AuthConfig.kakaoJavascriptKey);
 }
 
 class AuthConfig {
   static const kakaoNativeAppKey = String.fromEnvironment(
     'KAKAO_NATIVE_APP_KEY',
     defaultValue: '0ecef49f91608f40010f59053f36fa9a',
+  );
+  static const kakaoJavascriptKey = String.fromEnvironment(
+    'KAKAO_JAVASCRIPT_KEY',
   );
   static const googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
   static const googleServerClientId = String.fromEnvironment(
@@ -623,23 +634,21 @@ class _CampOnShellState extends State<CampOnShell> {
           onDeleteAccount: _deleteAccount,
         );
       case AppStep.browse:
-        return CampsiteListScreen(
-          title: '모든 캠핑장',
-          subtitle: '${_region.name} 기준 가까운 캠핑장을 보여드려요.',
+        return CampsiteBrowseScreen(
+          subtitle: '${_region.name} 반경 20km 이내 캠핑장이에요.',
           future: _browseFuture,
-          emptyText: '가까운 캠핑장을 찾지 못했어요.',
+          emptyText: '반경 20km 이내에서 캠핑장을 찾지 못했어요.',
           onRetry: () {
             setState(() {
-              _browseFuture = _api.fetchNearby(
-                region: _region,
-                page: 0,
-                size: 20,
-              );
+              _browseFuture = _api.fetchAllNearby(region: _region);
             });
           },
-          onResetCondition: null,
           onSelect: (site) => _selectSite(site, DetailEntry.browse),
-          entry: DetailEntry.browse,
+          mapViewBuilder: (sites, onSelect) => CampsiteMapView(
+            region: _region,
+            sites: sites,
+            onSelect: onSelect,
+          ),
         );
     }
   }
