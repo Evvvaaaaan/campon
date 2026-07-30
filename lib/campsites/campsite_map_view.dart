@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 
-import '../main.dart' show Campsite, CampRegion;
+import '../main.dart' show AuthConfig, Campsite, CampRegion;
 import '../theme.dart';
 
 class MapPreviewController extends ValueNotifier<Campsite?> {
@@ -29,6 +29,7 @@ class CampsiteMapView extends StatefulWidget {
 
 class _CampsiteMapViewState extends State<CampsiteMapView> {
   final _preview = MapPreviewController();
+  KakaoMapController? _controller;
 
   @override
   void didUpdateWidget(CampsiteMapView oldWidget) {
@@ -57,6 +58,19 @@ class _CampsiteMapViewState extends State<CampsiteMapView> {
 
   @override
   Widget build(BuildContext context) {
+    if (AuthConfig.kakaoJavascriptKey.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '지도 키가 설정되지 않았어요.',
+            style: CampText.bodyStrong,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     final markers = widget.sites
         .map(
           (site) => Marker(
@@ -70,14 +84,31 @@ class _CampsiteMapViewState extends State<CampsiteMapView> {
       children: [
         KakaoMap(
           center: LatLng(widget.region.lat, widget.region.lon),
+          currentLevel: 11,
           clusterer: Clusterer(markers: markers, minLevel: 10),
-          onMapCreated: (_) => setState(() {}),
-          onMapTap: (_) => _preview.clear(),
+          onMapCreated: (controller) {
+            if (!mounted) return;
+            _controller = controller;
+            setState(() {});
+          },
+          onMapTap: (_) {
+            if (!mounted) return;
+            _preview.clear();
+          },
           onMarkerTap: (markerId, latLng, zoomLevel) {
+            if (!mounted) return;
             final site = _siteForMarkerId(markerId);
             if (site != null) {
               _preview.select(site);
             }
+          },
+          onMarkerClustererTap: (latLng, zoomLevel, clusterMarkers) {
+            if (!mounted) return;
+            final controller = _controller;
+            if (controller == null) return;
+            controller.setCenter(latLng);
+            final nextLevel = zoomLevel - 2;
+            controller.setLevel(nextLevel < 1 ? 1 : nextLevel);
           },
         ),
         ValueListenableBuilder<Campsite?>(

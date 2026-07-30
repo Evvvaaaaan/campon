@@ -635,6 +635,7 @@ class _CampOnShellState extends State<CampOnShell> {
         );
       case AppStep.browse:
         return CampsiteBrowseScreen(
+          title: '주변 캠핑장',
           subtitle: '${_region.name} 반경 20km 이내 캠핑장이에요.',
           future: _browseFuture,
           emptyText: '반경 20km 이내에서 캠핑장을 찾지 못했어요.',
@@ -1490,6 +1491,7 @@ typedef CampsiteMapBuilder = Widget Function(
 
 class CampsiteBrowseScreen extends StatefulWidget {
   const CampsiteBrowseScreen({
+    required this.title,
     required this.subtitle,
     required this.future,
     required this.emptyText,
@@ -1499,6 +1501,7 @@ class CampsiteBrowseScreen extends StatefulWidget {
     super.key,
   });
 
+  final String title;
   final String subtitle;
   final Future<List<Campsite>>? future;
   final String emptyText;
@@ -1519,18 +1522,25 @@ class _CampsiteBrowseScreenState extends State<CampsiteBrowseScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CampChoiceChip(
-                label: '리스트',
-                selected: !_showMap,
-                onTap: () => setState(() => _showMap = false),
-              ),
-              const SizedBox(width: 8),
-              CampChoiceChip(
-                label: '지도',
-                selected: _showMap,
-                onTap: () => setState(() => _showMap = true),
+              Text(widget.title, style: CampText.displaySmall),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  CampChoiceChip(
+                    label: '리스트',
+                    selected: !_showMap,
+                    onTap: () => setState(() => _showMap = false),
+                  ),
+                  const SizedBox(width: 8),
+                  CampChoiceChip(
+                    label: '지도',
+                    selected: _showMap,
+                    onTap: () => setState(() => _showMap = true),
+                  ),
+                ],
               ),
             ],
           ),
@@ -4249,14 +4259,7 @@ class CampOnApi {
       if (decoded is! Map<String, dynamic>) {
         throw const CampOnApiException('Unexpected response shape.');
       }
-      final items = decoded['items'];
-      if (items is! List) {
-        return (items: <Campsite>[], hasNext: false);
-      }
-      return (
-        items: items.whereType<Map<String, dynamic>>().map(Campsite.fromJson).toList(),
-        hasNext: decoded['hasNext'] == true,
-      );
+      return parseCampsitePage(decoded);
     } on SocketException catch (error) {
       throw CampOnApiException('Network error: ${error.message}');
     } on TimeoutException {
@@ -4616,6 +4619,22 @@ class CampOnApi {
       query: pairs.join('&'),
     );
   }
+}
+
+/// 캠핑장 목록 응답(JSON) 한 페이지를 파싱한다.
+/// items가 리스트가 아니면 빈 페이지로 간주하고, hasNext는 true일 때만 true다.
+PageResult<Campsite> parseCampsitePage(Map<String, dynamic> decoded) {
+  final items = decoded['items'];
+  if (items is! List) {
+    return (items: <Campsite>[], hasNext: false);
+  }
+  return (
+    items: items
+        .whereType<Map<String, dynamic>>()
+        .map(Campsite.fromJson)
+        .toList(),
+    hasNext: decoded['hasNext'] == true,
+  );
 }
 
 class CampOnApiException implements Exception {

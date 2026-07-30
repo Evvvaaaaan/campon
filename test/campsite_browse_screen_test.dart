@@ -15,6 +15,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: CampsiteBrowseScreen(
+            title: '주변 캠핑장',
             subtitle: '테스트 부제',
             future: Future.value([_site(1), _site(2)]),
             emptyText: '결과 없음',
