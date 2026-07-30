@@ -14,6 +14,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import 'location/location_service.dart';
 import 'motion/motion.dart';
 import 'planner/plan_models.dart';
 import 'planner/planner_input_screen.dart';
@@ -27,8 +28,23 @@ Future<void> main() async {
 }
 
 Future<void> _initializeNativeSdks() async {
-  if (AuthConfig.kakaoNativeAppKey.isNotEmpty) {
-    await KakaoSdk.init(nativeAppKey: AuthConfig.kakaoNativeAppKey);
+  if (AuthConfig.kakaoNativeAppKey.isEmpty) {
+    debugPrint('[KakaoSdk] KAKAO_NATIVE_APP_KEY가 비어 있어 초기화를 건너뜁니다.');
+    return;
+  }
+  try {
+    // 디버그 빌드에서는 카카오 SDK 내부 로그를 콘솔에 남겨 실패 지점을 추적한다.
+    await KakaoSdk.init(
+      nativeAppKey: AuthConfig.kakaoNativeAppKey,
+      loggingEnabled: kDebugMode,
+    );
+    debugPrint(
+      '[KakaoSdk] init 완료 | nativeAppKey=${AuthConfig.kakaoNativeAppKey} '
+      'customScheme=${KakaoSdk.customScheme} redirectUri=${KakaoSdk.redirectUri}',
+    );
+  } catch (error, stackTrace) {
+    debugPrint('[KakaoSdk] init 실패: $error');
+    debugPrint('[KakaoSdk] Stack trace:\n$stackTrace');
   }
 }
 
@@ -133,6 +149,8 @@ class _CampOnShellState extends State<CampOnShell> {
   final Set<String> _equipment = <String>{};
   final Set<String> _preferences = <String>{};
   final Set<String> _checkedItems = <String>{};
+  // 보유 장비를 체크리스트에 한 번만 옮겨 담아, 이후 체크/해제는 _checkedItems만 따른다.
+  bool _checklistSeeded = false;
 
   Future<List<Campsite>>? _recommendationsFuture;
   Future<List<Campsite>>? _browseFuture;
@@ -198,7 +216,15 @@ class _CampOnShellState extends State<CampOnShell> {
   }
 
   void _goChecklist() {
-    setState(() => _step = AppStep.checklist);
+    setState(_seedChecklistAndOpen);
+  }
+
+  void _seedChecklistAndOpen() {
+    if (!_checklistSeeded) {
+      _checkedItems.addAll(_equipment);
+      _checklistSeeded = true;
+    }
+    _step = AppStep.checklist;
   }
 
   void _goSettings() {
@@ -298,6 +324,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _hasRecommended = true;
       _selectedSite = null;
       _checkedItems.clear();
+      _checklistSeeded = false;
       _recommendationsFuture = _api.fetchRecommendations(
         region: _region,
         date: _date!,
@@ -322,7 +349,7 @@ class _CampOnShellState extends State<CampOnShell> {
 
   void _startPreparation() {
     if (_selectedSite != null) {
-      setState(() => _step = AppStep.checklist);
+      setState(_seedChecklistAndOpen);
     }
   }
 
@@ -344,6 +371,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _equipment.clear();
       _preferences.clear();
       _checkedItems.clear();
+      _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
       _detailEntry = DetailEntry.recommendations;
@@ -368,6 +396,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _equipment.clear();
       _preferences.clear();
       _checkedItems.clear();
+      _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
       _detailEntry = DetailEntry.recommendations;
@@ -392,6 +421,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _equipment.clear();
       _preferences.clear();
       _checkedItems.clear();
+      _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
       _detailEntry = DetailEntry.recommendations;
@@ -549,7 +579,6 @@ class _CampOnShellState extends State<CampOnShell> {
       case AppStep.checklist:
         return ChecklistScreen(
           selectedSite: _selectedSite,
-          ownedEquipment: _equipment,
           checkedItems: _checkedItems,
           aiItems: _aiChecklistItems,
           onToggle: (key) => _toggleSetValue(_checkedItems, key),
@@ -577,7 +606,7 @@ class _CampOnShellState extends State<CampOnShell> {
           onRegenerate: () => setState(() => _step = AppStep.plannerInput),
           onSendToChecklist: (items) => setState(() {
             _aiChecklistItems = items;
-            _step = AppStep.checklist;
+            _seedChecklistAndOpen();
           }),
         );
       case AppStep.settings:
@@ -697,6 +726,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (error is KakaoAuthException) {
       return error.error == AuthErrorCause.accessDenied;
     }
+    // 카카오 SDK는 로그인 방법 선택 창을 닫으면 ClientErrorCause.cancelled를 던진다.
+    if (error is KakaoClientException) {
+      return error.reason == ClientErrorCause.cancelled;
+    }
     if (error is PlatformException) {
       return error.code == 'CANCELED' || error.code == 'CANCELLED';
     }
@@ -727,10 +760,45 @@ class _LoginScreenState extends State<LoginScreen> {
         _ => 'Apple 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
       };
     }
+    if (error is KakaoClientException) {
+      final base = switch (error.reason) {
+        ClientErrorCause.notSupported =>
+          '이 기기에서는 카카오 로그인을 사용할 수 없습니다.',
+        ClientErrorCause.tokenNotFound =>
+          '카카오 로그인 정보가 없습니다. 다시 로그인해주세요.',
+        _ => '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
+      };
+      return _withDebugDetail(base, '${error.reason.name}: ${error.msg}');
+    }
+    if (error is KakaoAuthException) {
+      final base = switch (error.error) {
+        AuthErrorCause.misconfigured =>
+          '카카오 로그인 설정이 완료되지 않았습니다. Kakao Developers의 '
+              '플랫폼(bundle ID / 패키지명·키 해시)과 앱 키 등록을 확인해주세요.',
+        AuthErrorCause.unauthorized =>
+          '카카오 앱 권한 설정을 확인해주세요. 카카오 로그인 활성화와 동의항목이 필요합니다.',
+        _ => '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
+      };
+      return _withDebugDetail(
+        base,
+        '${error.error.name}: ${error.errorDescription ?? ''}',
+      );
+    }
     if (error is KakaoException) {
-      return '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+      return _withDebugDetail(
+        '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
+        '$error',
+      );
     }
     return '로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+
+  /// 디버그 빌드에서만 원인 문자열을 덧붙인다. 릴리즈에서는 원문 오류를 노출하지 않는다.
+  String _withDebugDetail(String message, String detail) {
+    if (!kDebugMode || detail.trim().isEmpty) {
+      return message;
+    }
+    return '$message\n(디버그: $detail)';
   }
 
   void _submitDevLogin() {
@@ -1569,7 +1637,11 @@ class CampsiteDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 22),
               const FormLabel('길찾기'),
-              DirectionsCard(api: api, origin: region, site: campsite),
+              DirectionsCard(
+                fetchDirections: api.fetchDirections,
+                location: const GeolocatorLocationProvider(),
+                site: campsite,
+              ),
               const SizedBox(height: 22),
               const FormLabel('날씨 리스크 · 준비 중'),
               Text(
@@ -1629,16 +1701,24 @@ class CampsiteDetailScreen extends StatelessWidget {
   }
 }
 
+typedef DirectionsFetcher =
+    Future<DirectionResult> Function({
+      required double originX,
+      required double originY,
+      required double destX,
+      required double destY,
+    });
+
 class DirectionsCard extends StatefulWidget {
   const DirectionsCard({
-    required this.api,
-    required this.origin,
+    required this.fetchDirections,
+    required this.location,
     required this.site,
     super.key,
   });
 
-  final CampOnApi api;
-  final CampRegion origin;
+  final DirectionsFetcher fetchDirections;
+  final LocationProvider location;
   final Campsite site;
 
   @override
@@ -1646,83 +1726,170 @@ class DirectionsCard extends StatefulWidget {
 }
 
 class _DirectionsCardState extends State<DirectionsCard> {
-  Future<DirectionResult>? _future;
+  bool _loading = false;
+  DirectionResult? _result;
+  Object? _error;
 
-  void _load() {
+  /// 현재 위치를 먼저 확보한 뒤 그 좌표를 출발지로 길찾기를 요청한다.
+  Future<void> _load() async {
     setState(() {
-      _future = widget.api.fetchDirections(
-        originX: widget.origin.lon,
-        originY: widget.origin.lat,
+      _loading = true;
+      _error = null;
+      _result = null;
+    });
+    try {
+      final origin = await widget.location.current();
+      final result = await widget.fetchDirections(
+        originX: origin.lon,
+        originY: origin.lat,
         destX: widget.site.lon,
         destY: widget.site.lat,
       );
-    });
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _result = result;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _error = error;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final future = _future;
     return CampCard(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '${widget.origin.name} 지역 기준 출발지에서 ${widget.site.name}까지 경로를 확인해요.',
+            '현재 위치에서 ${widget.site.name}까지 경로를 확인해요.',
             style: CampText.caption.copyWith(color: CampColors.inkMuted80),
           ),
           const SizedBox(height: 12),
-          if (future == null)
-            CampButton.secondary(
-              label: '경로 확인',
-              icon: Icons.directions_outlined,
-              onPressed: _load,
-            )
-          else
-            FutureBuilder<DirectionResult>(
-              future: future,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const LoadingPanel();
-                }
-                if (snapshot.hasError) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('경로를 불러오지 못했어요.', style: CampText.bodyStrong),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${snapshot.error}',
-                        style: CampText.caption.copyWith(
-                          color: CampColors.inkMuted80,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      CampButton.secondary(label: '다시 시도', onPressed: _load),
-                    ],
-                  );
-                }
-                final result = snapshot.data!;
-                return Row(
-                  children: [
-                    Expanded(
-                      child: _DirectionMetric(
-                        label: '거리',
-                        value: _formatDistance(result.distanceMeters),
-                      ),
-                    ),
-                    Expanded(
-                      child: _DirectionMetric(
-                        label: '예상 시간',
-                        value: _formatDuration(result.durationSeconds),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+          _buildBody(),
         ],
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const LoadingPanel();
+    }
+
+    final error = _error;
+    if (error is LocationBlockedException) {
+      return _LocationBlockedPanel(
+        error: error,
+        onRetry: _load,
+        onOpenSettings: () => widget.location.openSettings(error.reason),
+      );
+    }
+    if (error != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('경로를 불러오지 못했어요.', style: CampText.bodyStrong),
+          const SizedBox(height: 4),
+          Text(
+            '$error',
+            style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+          ),
+          const SizedBox(height: 12),
+          CampButton.secondary(label: '다시 시도', onPressed: _load),
+        ],
+      );
+    }
+
+    final result = _result;
+    if (result == null) {
+      return CampButton.secondary(
+        label: '경로 확인',
+        icon: Icons.directions_outlined,
+        onPressed: _load,
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: _DirectionMetric(
+            label: '거리',
+            value: _formatDistance(result.distanceMeters),
+          ),
+        ),
+        Expanded(
+          child: _DirectionMetric(
+            label: '예상 시간',
+            value: _formatDuration(result.durationSeconds),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 위치를 얻지 못한 이유별로 안내 문구와 다음 행동을 하나씩 보여준다.
+class _LocationBlockedPanel extends StatelessWidget {
+  const _LocationBlockedPanel({
+    required this.error,
+    required this.onRetry,
+    required this.onOpenSettings,
+  });
+
+  final LocationBlockedException error;
+  final VoidCallback onRetry;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final needsSettings =
+        error.reason == LocationBlockReason.serviceDisabled ||
+        error.reason == LocationBlockReason.deniedForever;
+    final label = switch (error.reason) {
+      LocationBlockReason.serviceDisabled => '위치 설정 열기',
+      LocationBlockReason.deniedForever => '설정 열기',
+      LocationBlockReason.denied => '권한 다시 요청',
+      LocationBlockReason.failed => '다시 시도',
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('현재 위치를 사용할 수 없어요.', style: CampText.bodyStrong),
+        const SizedBox(height: 4),
+        Text(
+          error.message,
+          style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+        ),
+        const SizedBox(height: 12),
+        CampButton.secondary(
+          label: label,
+          onPressed: needsSettings ? onOpenSettings : onRetry,
+        ),
+        // 설정을 다녀온 뒤 화면을 다시 열지 않고 바로 재시도할 수 있게 한다.
+        if (needsSettings)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(
+                foregroundColor: CampColors.primaryDark,
+                padding: EdgeInsets.zero,
+                textStyle: CampText.captionStrong,
+              ),
+              child: const Text('다시 시도'),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1755,7 +1922,6 @@ class _DirectionMetric extends StatelessWidget {
 class ChecklistScreen extends StatelessWidget {
   const ChecklistScreen({
     required this.selectedSite,
-    required this.ownedEquipment,
     required this.checkedItems,
     required this.onToggle,
     required this.onReset,
@@ -1764,7 +1930,6 @@ class ChecklistScreen extends StatelessWidget {
   });
 
   final Campsite? selectedSite;
-  final Set<String> ownedEquipment;
   final Set<String> checkedItems;
   final List<String> aiItems;
   final ValueChanged<String> onToggle;
@@ -1777,14 +1942,10 @@ class ChecklistScreen extends StatelessWidget {
       ...CampData.fixedChecklist,
     ];
     final doneCount = checklistItems
-        .where(
-          (item) =>
-              ownedEquipment.contains(item.apiValue) ||
-              checkedItems.contains(item.apiValue),
-        )
+        .where((item) => checkedItems.contains(item.apiValue))
         .length;
     final missingGear = CampData.equipmentOptions
-        .where((item) => !ownedEquipment.contains(item.apiValue))
+        .where((item) => !checkedItems.contains(item.apiValue))
         .toList();
 
     final progress = checklistItems.isEmpty
@@ -1924,9 +2085,6 @@ class ChecklistScreen extends StatelessWidget {
                   ChecklistRow(
                     item: checklistItems[index],
                     checked:
-                        ownedEquipment.contains(
-                          checklistItems[index].apiValue,
-                        ) ||
                         checkedItems.contains(checklistItems[index].apiValue),
                     showDivider: index != checklistItems.length - 1,
                     onTap: () => onToggle(checklistItems[index].apiValue),
@@ -3863,7 +4021,33 @@ class CampOnApi {
       throw const CampOnApiException('KAKAO_NATIVE_APP_KEY가 설정되지 않았습니다.');
     }
 
-    final token = await UserApi.instance.loginWithKakao(context);
+    debugPrint(
+      '[Kakao] 로그인 시작 | platform=${Platform.operatingSystem} '
+      'nativeAppKey=${AuthConfig.kakaoNativeAppKey} '
+      'customScheme=${KakaoSdk.customScheme}',
+    );
+
+    final OAuthToken token;
+    try {
+      token = await UserApi.instance.loginWithKakao(context);
+    } catch (error, stackTrace) {
+      debugPrint('[Kakao] SDK 로그인 실패 (${error.runtimeType}): $error');
+      debugPrint('[Kakao] kakaoTalkInstalled=${await isKakaoTalkInstalled()}');
+      debugPrint('[Kakao] Stack trace:\n$stackTrace');
+      rethrow;
+    }
+
+    // 토큰 값 자체는 남기지 않고 서버 교환에 필요한 형태 정보만 기록한다.
+    debugPrint(
+      '[Kakao] SDK 로그인 성공 | accessTokenLength=${token.accessToken.length} '
+      'hasRefreshToken=${token.refreshToken != null} '
+      'hasIdToken=${token.idToken != null} scopes=${token.scopes} '
+      'expiresAt=${token.expiresAt}',
+    );
+    debugPrint(
+      '[Kakao] 서버 교환 요청 | ${AuthProvider.kakao.path} '
+      'code=카카오 access token (authorization code 아님)',
+    );
 
     await signInWithOAuth(
       provider: AuthProvider.kakao,
@@ -3902,7 +4086,7 @@ class CampOnApi {
       <String, String>{
         'lat': region.lat.toString(),
         'lon': region.lon.toString(),
-        'radius': '70000',
+        'radius': '20000',
         'date': DateTime(date.year, date.month, date.day).toIso8601String(),
         'groupSize': '$people',
         'withCar': '$hasCar',
@@ -4155,6 +4339,10 @@ class CampOnApi {
       final responseBody = await response.transform(utf8.decoder).join();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        // 화면에는 요약 메시지만 노출되므로 원본 응답은 콘솔에만 남긴다.
+        debugPrint(
+          '[Auth] ${uri.path} 실패 | HTTP ${response.statusCode} | body=$responseBody',
+        );
         if (sessionRefresh &&
             (response.statusCode == 401 || response.statusCode == 403)) {
           throw CampOnSessionExpiredException(
