@@ -31,6 +31,14 @@ class _CampsiteMapViewState extends State<CampsiteMapView> {
   final _preview = MapPreviewController();
 
   @override
+  void didUpdateWidget(CampsiteMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.sites, oldWidget.sites)) {
+      _preview.clear();
+    }
+  }
+
+  @override
   void dispose() {
     _preview.dispose();
     super.dispose();
@@ -62,8 +70,9 @@ class _CampsiteMapViewState extends State<CampsiteMapView> {
       children: [
         KakaoMap(
           center: LatLng(widget.region.lat, widget.region.lon),
-          markers: markers,
           clusterer: Clusterer(markers: markers, minLevel: 10),
+          onMapCreated: (_) => setState(() {}),
+          onMapTap: (_) => _preview.clear(),
           onMarkerTap: (markerId, latLng, zoomLevel) {
             final site = _siteForMarkerId(markerId);
             if (site != null) {
