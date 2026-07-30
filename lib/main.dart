@@ -1474,6 +1474,102 @@ class PreferencesScreen extends StatelessWidget {
   }
 }
 
+typedef CampsiteMapBuilder = Widget Function(
+  List<Campsite> sites,
+  ValueChanged<Campsite> onSelect,
+);
+
+class CampsiteBrowseScreen extends StatefulWidget {
+  const CampsiteBrowseScreen({
+    required this.subtitle,
+    required this.future,
+    required this.emptyText,
+    required this.onRetry,
+    required this.onSelect,
+    required this.mapViewBuilder,
+    super.key,
+  });
+
+  final String subtitle;
+  final Future<List<Campsite>>? future;
+  final String emptyText;
+  final VoidCallback onRetry;
+  final ValueChanged<Campsite> onSelect;
+  final CampsiteMapBuilder mapViewBuilder;
+
+  @override
+  State<CampsiteBrowseScreen> createState() => _CampsiteBrowseScreenState();
+}
+
+class _CampsiteBrowseScreenState extends State<CampsiteBrowseScreen> {
+  bool _showMap = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Row(
+            children: [
+              CampChoiceChip(
+                label: '리스트',
+                selected: !_showMap,
+                onTap: () => setState(() => _showMap = false),
+              ),
+              const SizedBox(width: 8),
+              CampChoiceChip(
+                label: '지도',
+                selected: _showMap,
+                onTap: () => setState(() => _showMap = true),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: FutureBuilder<List<Campsite>>(
+            future: widget.future,
+            builder: (context, snapshot) {
+              if (widget.future == null ||
+                  snapshot.connectionState == ConnectionState.waiting) {
+                return const LoadingPanel();
+              }
+              if (snapshot.hasError) {
+                return ErrorPanel(
+                  message: snapshot.error.toString(),
+                  onRetry: widget.onRetry,
+                );
+              }
+              final sites = snapshot.data ?? <Campsite>[];
+              if (sites.isEmpty) {
+                return EmptyPanel(text: widget.emptyText, onRetry: widget.onRetry);
+              }
+              if (_showMap) {
+                return widget.mapViewBuilder(sites, widget.onSelect);
+              }
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                children: [
+                  Text(widget.subtitle, style: CampText.body.copyWith(color: CampColors.inkMuted80)),
+                  const SizedBox(height: 12),
+                  for (var i = 0; i < sites.length; i++) ...[
+                    CampsiteCard(
+                      site: sites[i],
+                      showScore: false,
+                      onTap: () => widget.onSelect(sites[i]),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class CampsiteListScreen extends StatelessWidget {
   const CampsiteListScreen({
     required this.title,
