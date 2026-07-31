@@ -1,6 +1,7 @@
 import 'package:campon/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 void main() {
   test('valid persisted session is restored and logout clears it', () async {
@@ -57,6 +58,20 @@ void main() {
     expect(kakaoButton.onPressed, isNotNull);
   });
 
+  testWidgets('카카오 로그인 선택 창을 닫으면 오류를 표시하지 않는다', (tester) async {
+    final api = _FailingNativeLoginApi(
+      _MemoryAuthSessionStore(null),
+      KakaoClientException(ClientErrorCause.cancelled, 'User Cancelled'),
+    );
+    await tester.pumpWidget(CampOnApp(api: api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('카카오로 계속하기'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.error_outline), findsNothing);
+  });
+
   testWidgets('JWT 발급을 마친 소셜 로그인은 홈 화면으로 이동한다', (tester) async {
     final store = _MemoryAuthSessionStore(null);
     final api = _JwtIssuingApi(store);
@@ -92,6 +107,21 @@ class _MemoryAuthSessionStore implements AuthSessionStore {
   @override
   Future<void> write(AuthSession value) async {
     session = value;
+  }
+}
+
+class _FailingNativeLoginApi extends CampOnApi {
+  _FailingNativeLoginApi(_MemoryAuthSessionStore store, this.error)
+    : super(sessionStore: store);
+
+  final Object error;
+
+  @override
+  Future<void> signInWithNativeProvider({
+    required AuthProvider provider,
+    required BuildContext context,
+  }) async {
+    throw error;
   }
 }
 
