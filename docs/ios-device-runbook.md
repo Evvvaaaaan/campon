@@ -69,6 +69,32 @@ cd ..
 
 `Pods`, `build`, `tmp_build`는 생성물이다. 소유권 또는 확장 속성이 꼬였을 때 원본 소스 파일을 수정하기보다 이 폴더들을 재생성하는 편이 안전하다.
 
+## 2-1. `Could not delete ... not created by the build system`
+
+> **2026-07-31 확인된 근본 원인:** Flutter는 iOS 빌드에서 `CONFIGURATION_BUILD_DIR`만
+> 프로젝트 안(`build/ios/<Config>-<sdk>`)으로 덮어쓰고 `-derivedDataPath`는 넘기지 않는다
+> (`flutter_tools/lib/src/ios/xcode_build_settings.dart:190`. macOS 빌드만
+> `macos/build_macos.dart:228`에서 `-derivedDataPath`를 넘긴다).
+> 그래서 **산출물은 프로젝트의 `build/ios/`에, 그 산출물을 누가 만들었는지 기록한 Xcode 빌드 DB는
+> `~/Library/Developer/Xcode/DerivedData/Runner-*/Build/Intermediates.noindex/XCBuildData/build.db`에**
+> 서로 다른 곳에 저장된다. (해당 DerivedData의 `Build/Products`는 비어 있다.)
+
+한쪽만 지우면 둘이 어긋난다. 특히 **DerivedData 쪽 `build.db`가 초기화됐는데 `build/ios/`의 산출물이
+남아 있으면**, Xcode는 자기가 만든 기록이 없고 DerivedData 하위도 아닌 파일을 지우기를 거부하고
+빌드를 중단한다. Xcode에서 `Product > Clean Build Folder`를 하거나 DerivedData를 지운 뒤
+터미널에서 `flutter run`을 하면 이 상태가 된다.
+
+`rm -rf build/ios`만 하면 그때는 통과하지만 같은 일이 반복되면 재발한다. 둘을 함께 지운다.
+
+```bash
+rm -rf build/ios
+rm -rf ~/Library/Developer/Xcode/DerivedData/Runner-*
+flutter run -d <device-id>
+```
+
+`Runner-*`가 여러 개 쌓여 있는 것은 정상이다(워크스페이스 경로마다 새로 생긴다). 어느 것이 현재
+프로젝트 것인지 헷갈리면 전부 지워도 된다 — 재생성된다.
+
 ## 3. 로그인 SDK iOS 설정
 
 현재 프로젝트는 아래 설정을 복구했다.
@@ -173,6 +199,7 @@ flutter run -d 00008140-001129043A3B801C
 | `Unable to find ... Runner.xcodeproj` | iOS 프로젝트 파일 누락 | 1절의 Git 복구 또는 iOS 재생성 |
 | `CompileAssetCatalogVariant failed` | 아이콘 또는 에셋 카탈로그 문제 | `ios/Runner/Assets.xcassets/AppIcon.appiconset`을 확인하고 `flutter clean` 후 재빌드 |
 | `resource fork ... not allowed` | 이전 생성물의 Finder 정보 또는 리소스 포크 | `tmp_build`와 `build` 삭제 후 재생성, 계속되면 새 Git clone |
+| `Could not delete ... because it was not created by the build system` | 산출물(`build/ios`)과 Xcode 빌드 DB(DerivedData)가 따로 저장돼 어긋남 | 2-1절 — 둘을 **함께** 지운 뒤 재빌드 |
 | `Failed Registering Bundle Identifier` | 다른 Apple Developer Team의 App ID | 4절의 팀 초대 및 올바른 Bundle ID 선택 |
 | `doesn't support Sign in with Apple` | 와일드카드 프로파일 또는 capability 누락 | 명시적 App ID에 capability 활성화, 프로파일 갱신 |
 | `AppleEvent handler failed` | macOS Xcode 자동화 권한 누락 | 5절의 Automation 권한 허용 |
