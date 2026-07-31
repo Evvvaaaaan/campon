@@ -13,7 +13,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'campsites/campsite_map_view.dart';
 import 'campsites/campsite_pagination.dart';
@@ -89,6 +91,29 @@ class AuthConfig {
 
   /// 디버그 빌드에서는 항상 개발 계정 로그인을 노출한다.
   static bool get devLoginVisible => showDevLogin || kDebugMode;
+}
+
+/// 약관 문서의 위치. 로그인 화면이 동의를 전제하므로 사용자가 실제로 읽을 수 있어야 한다.
+///
+/// App Store는 계정을 만드는 앱에 개인정보 처리방침을 요구한다. 값이 비어 있으면 링크를
+/// 감추므로, 제출 빌드에서는 반드시 `--dart-define`으로 두 URL을 넣어야 한다.
+class LegalConfig {
+  static const privacyPolicyUrl = String.fromEnvironment('PRIVACY_POLICY_URL');
+  static const termsOfServiceUrl = String.fromEnvironment(
+    'TERMS_OF_SERVICE_URL',
+  );
+
+  static bool get hasLinks =>
+      privacyPolicyUrl.isNotEmpty || termsOfServiceUrl.isNotEmpty;
+
+  /// 링크를 열지 못하면 조용히 실패하지 않고 호출한 쪽이 안내할 수 있게 false를 준다.
+  static Future<bool> open(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      return false;
+    }
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 }
 
 class CampOnApp extends StatelessWidget {
@@ -1037,6 +1062,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 1.5,
                         ),
                       ),
+                      if (LegalConfig.hasLinks) ...[
+                        const SizedBox(height: 6),
+                        const LegalLinkRow(),
+                      ],
                     ],
                   ),
                 ),
@@ -2636,6 +2665,95 @@ class _PostCard extends StatelessWidget {
   }
 }
 
+/// 앱 버전을 번들에서 읽어 보여준다. 문자열을 직접 적으면 pubspec 버전과 어긋난다.
+class AppVersionRow extends StatefulWidget {
+  const AppVersionRow({super.key});
+
+  @override
+  State<AppVersionRow> createState() => _AppVersionRowState();
+}
+
+class _AppVersionRowState extends State<AppVersionRow> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() => _version = '${info.version} (${info.buildNumber})');
+      }
+    } catch (_) {
+      // 플러그인을 쓸 수 없는 환경(위젯 테스트 등)에서는 비워 둔다.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsRow(
+      icon: Icons.info_outline_rounded,
+      title: '앱 버전',
+      value: _version,
+    );
+  }
+}
+
+/// 이용약관과 개인정보 처리방침을 여는 링크. URL이 설정된 문서만 보여준다.
+class LegalLinkRow extends StatelessWidget {
+  const LegalLinkRow({this.color, super.key});
+
+  final Color? color;
+
+  Future<void> _open(BuildContext context, String url) async {
+    final opened = await LegalConfig.open(url);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('링크를 열지 못했습니다.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = CampText.finePrint.copyWith(
+      color: color ?? CampColors.greenTint,
+      decoration: TextDecoration.underline,
+      decorationColor: color ?? CampColors.greenTint,
+    );
+    final links = <Widget>[
+      if (LegalConfig.termsOfServiceUrl.isNotEmpty)
+        GestureDetector(
+          onTap: () => _open(context, LegalConfig.termsOfServiceUrl),
+          child: Text('이용약관', style: style),
+        ),
+      if (LegalConfig.privacyPolicyUrl.isNotEmpty)
+        GestureDetector(
+          onTap: () => _open(context, LegalConfig.privacyPolicyUrl),
+          child: Text('개인정보 처리방침', style: style),
+        ),
+    ];
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (final (index, link) in links.indexed) ...[
+          if (index > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text('·', style: style.copyWith(decoration: null)),
+            ),
+          link,
+        ],
+      ],
+    );
+  }
+}
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     required this.region,
@@ -2786,18 +2904,21 @@ class SettingsScreen extends StatelessWidget {
         CampCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              SettingsRow(
-                icon: Icons.dns_outlined,
-                title: 'API 서버',
-                value: CampOnApi.publicHost,
-              ),
-              SizedBox(height: 14),
-              SettingsRow(
-                icon: Icons.info_outline_rounded,
-                title: '앱 버전',
-                value: '1.0.0',
-              ),
+            children: [
+              // API 호스트는 사용자에게 의미가 없으므로 디버그 빌드에서만 보여준다.
+              if (kDebugMode) ...[
+                const SettingsRow(
+                  icon: Icons.dns_outlined,
+                  title: 'API 서버',
+                  value: CampOnApi.publicHost,
+                ),
+                const SizedBox(height: 14),
+              ],
+              const AppVersionRow(),
+              if (LegalConfig.hasLinks) ...[
+                const SizedBox(height: 16),
+                const LegalLinkRow(color: CampColors.inkMuted80),
+              ],
             ],
           ),
         ),
