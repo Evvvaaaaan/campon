@@ -10,17 +10,17 @@
 이 네 가지가 해결되기 전에는 App Store Connect 업로드 자체가 불가능하거나, 업로드해도 심사에서
 리젝된다.
 
-### A-1. 앱 아이콘이 아직 Flutter 기본 로고다 — 리젝 확정
+### A-1. 앱 아이콘 — 해결됨 (2026-08-01)
 
-`ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png`를 열어 보면 파란 Flutter
-로고 그대로다. 규격 자체는 문제없다(1024x1024, 알파 채널 없음). 내용물만 교체하면 된다.
+기존에는 파란 Flutter 기본 로고가 그대로 들어 있었다. 플레이스홀더 아이콘은 Guideline 2.3.8
+리젝 사유이고, 애초에 Flutter의 상표라 배포할 수 없었다.
 
-Apple은 플레이스홀더 아이콘을 Guideline 2.3.8(정확한 메타데이터)로 리젝한다. 게다가 이건 Flutter의
-상표라 그대로 배포할 수 없다.
+`scripts/generate_app_icon.py`로 브랜드 아이콘을 만들어 15개 사이즈 전부 교체했다. 밤 숲
+그라데이션 위에 앰버색 A형 텐트와 별을 얹은 그림이고, 색은 `lib/theme.dart`의 `CampColors`
+계열을 쓴다. 알파 채널이 없고 모서리를 직접 깎지 않았다(iOS가 자동으로 처리한다).
 
-- [ ] 1024x1024 마스터 아이콘을 제작한다. **알파 채널(투명도)이 없어야 하고, 둥근 모서리를 직접 그리면 안 된다** (iOS가 자동으로 깎는다).
-- [ ] 16개 사이즈 전부 교체한다. `flutter_icons`(`flutter_launcher_icons`) 패키지를 쓰면 마스터 한 장에서 자동 생성된다.
-- [ ] 확인 방법: `sips -g hasAlpha -g pixelWidth ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png` → `hasAlpha: no`, `pixelWidth: 1024`
+- [x] 확인함: `sips -g hasAlpha -g pixelWidth .../Icon-App-1024x1024@1x.png` → `hasAlpha: no`, `pixelWidth: 1024`
+- [ ] **디자이너 검토는 아직 받지 않았다.** 그림을 바꾸려면 스크립트의 좌표·색만 고치고 다시 실행하면 15개 사이즈가 함께 갱신된다.
 
 ### A-2. Bundle ID가 개발용 `com.seohamin.camp.dev`다
 
@@ -59,20 +59,26 @@ Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign
 - [ ] 명시적 App ID 기준 Distribution provisioning profile을 생성한다.
 - [ ] 확인 방법: `flutter build ipa`가 서명 오류 없이 끝난다.
 
-### A-4. 개인정보 처리방침과 이용약관을 앱에서 볼 수 없다
+### A-4. 개인정보 처리방침과 이용약관 — 앱 쪽은 준비됨, URL이 없다
 
-`lib/main.dart:1033`의 로그인 화면에 이런 문구가 있다.
+로그인 화면에는 "로그인하면 CampOn 이용약관과 개인정보 처리방침에 동의하는 것으로 간주됩니다"라는
+문구가 있는데, 이전에는 **탭할 수 없는 순수 텍스트**였다. 동의를 받는다면서 읽을 수단이 없어
+Guideline 5.1.1 리젝 사유였다.
 
-> 로그인하면 CampOn 이용약관과 개인정보 처리방침에 동의하는 것으로 간주됩니다.
+이제 로그인 화면과 설정 화면 양쪽에 링크(`LegalLinkRow`)를 붙였다. 다만 **URL이 아직 없어서
+링크가 감춰진 상태**다. `LegalConfig`가 `--dart-define` 값을 읽고, 비어 있으면 링크를 그리지
+않는다 (`lib/main.dart`).
 
-그런데 이 문구는 **탭할 수 없는 순수 텍스트**다. 링크도, 설정 화면의 메뉴도 없다. 동의를 받는다고
-써 놓고 정작 내용을 읽을 수단이 없는 상태다. 계정을 만드는 앱에서 이건 Guideline 5.1.1 리젝
-사유가 된다.
-
-- [ ] 개인정보 처리방침을 실제 URL에 게시한다 (App Store Connect 제출 시 **필수 입력**).
-- [ ] 이용약관도 게시한다 (문구에서 언급하고 있으므로).
-- [ ] 로그인 화면 문구를 탭 가능한 링크로 바꾸거나, 설정 화면에 두 항목을 추가한다.
+- [ ] **개인정보 처리방침을 실제 URL에 게시한다.** App Store Connect 제출 시 필수 입력이라 이게
+      없으면 제출 자체가 막힌다.
+- [ ] **이용약관도 게시한다.** 로그인 문구가 언급하고 있으므로 함께 필요하다.
+- [ ] 제출 빌드에 두 값을 넣는다:
+      `--dart-define=PRIVACY_POLICY_URL=... --dart-define=TERMS_OF_SERVICE_URL=...`
+      **이 define을 빠뜨리면 링크가 조용히 사라진 채로 빌드된다.** 아카이브 후 설정 화면에서
+      링크가 보이는지 눈으로 확인한다.
 - [ ] 지원(문의) URL 또는 이메일을 확정한다 — App Store Connect 필수.
+
+확인 방법: `flutter test test/legal_links_test.dart --dart-define=PRIVACY_POLICY_URL=https://example.com/privacy --dart-define=TERMS_OF_SERVICE_URL=https://example.com/terms`
 
 ---
 
@@ -105,17 +111,22 @@ Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign
 
 ## C. 심사는 통과하겠지만 고치는 편이 좋은 것
 
-- [ ] **설정 화면 앱 버전이 하드코딩되어 있다.** `'1.0.0'` 문자열이 박혀 있어 `pubspec.yaml`의
-      `version: 1.0.0+1`을 올려도 화면은 그대로다. `package_info_plus`로 읽어오는 편이 낫다
-      (현재 전이 의존성으로만 들어와 있으므로 직접 의존성에 추가해야 한다).
-- [ ] **설정 화면이 API 서버 호스트를 노출한다.** `campon.seohamin.com`이 사용자에게 그대로 보인다.
-      일반 사용자에게 의미가 없고 공격 표면 정보를 준다. 디버그 빌드에서만 보이게 하거나 제거한다.
-- [ ] **런치 스크린이 기본 빈 화면이다.** `LaunchImage@3x.png`가 68바이트짜리 기본 투명 이미지라
-      흰 화면만 뜬다. 리젝 사유는 아니지만 첫인상에서 손해다.
-- [ ] **문서의 값이 실제 설정과 어긋나 있다.** `docs/ios-device-runbook.md` 3절 표의 Kakao URL
-      scheme(`kakao735b945f...`)과 Google client ID(`203621955396-...`)는 현재 `Info.plist`의 실제
-      값(`kakao0ecef49f...`, `651935780618-...`)과 다르다. 다음 사람이 잘못된 값을 믿는다.
-- [ ] **의존성 31개가 구버전이다.** `flutter_secure_storage 9.2.4`(10.3.1 있음) 등. 출시 직전
+2026-08-01에 아래 네 개를 처리했다.
+
+- [x] **설정 화면 앱 버전 하드코딩 제거.** `'1.0.0'` 문자열이 박혀 있어 `pubspec.yaml` 버전을
+      올려도 화면이 따라오지 않았다. `package_info_plus`를 직접 의존성에 추가하고 번들에서
+      `버전 (빌드번호)`를 읽어 표시한다(`AppVersionRow`).
+- [x] **API 서버 호스트를 디버그 빌드로 한정.** `campon.seohamin.com`이 사용자에게 그대로
+      보이던 행을 `kDebugMode`로 감쌌다.
+- [x] **런치 스크린 교체.** `LaunchImage`가 68바이트짜리 기본 투명 이미지라 흰 화면만 떴다.
+      아이콘과 같은 텐트 마크를 넣고 스토리보드 배경을 로그인 화면과 같은 숲 그린(`#1E3A2B`)으로
+      바꿔, 실행 직후 흰 화면이 번쩍이지 않게 했다. 마크도 `generate_app_icon.py`가 함께 만든다.
+- [x] **런북의 값 불일치 수정.** `docs/ios-device-runbook.md` 3절 표의 Bundle ID, Kakao URL
+      scheme, Google client ID가 모두 실제 설정과 달랐다. 실제 값으로 고치고 확인 날짜를 적었다.
+
+남은 것:
+
+- [ ] **의존성 32개가 구버전이다.** `flutter_secure_storage 9.2.4`(10.3.1 있음) 등. 출시 직전
       메이저 업그레이드는 위험하니 출시 후에 처리한다.
 
 ---
@@ -125,9 +136,10 @@ Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign
 A 블로커를 모두 해결한 뒤에 진행한다.
 
 1. [ ] `pubspec.yaml`의 `version`을 확정한다 (현재 `1.0.0+1`). 재업로드할 때마다 빌드 번호를 올려야 한다.
-2. [ ] 운영 dart-define 값을 확정한다. `AUTH_LOGIN_NOTES.md` 58행에 목록이 있다.
+2. [ ] 운영 dart-define 값을 확정한다. `AUTH_LOGIN_NOTES.md` 58행에 로그인 관련 목록이 있다.
        `KAKAO_NATIVE_APP_KEY`, `KAKAO_JAVASCRIPT_KEY`, `GOOGLE_CLIENT_ID`,
-       `GOOGLE_SERVER_CLIENT_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI`.
+       `GOOGLE_SERVER_CLIENT_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI`,
+       그리고 A-4의 `PRIVACY_POLICY_URL`, `TERMS_OF_SERVICE_URL`.
        **`SHOW_DEV_LOGIN`은 절대 넣지 않는다** — 넣으면 개발 계정 로그인 버튼이 심사자에게 노출된다.
        (릴리즈 빌드에서는 `kDebugMode`가 false라 기본적으로 숨겨진다. `lib/main.dart:91`)
 3. [ ] `./scripts/bootstrap.sh`를 실행한다. 이 프로젝트는 iCloud 동기화 폴더 안에 있어

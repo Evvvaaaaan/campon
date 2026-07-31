@@ -97,15 +97,17 @@ flutter run -d <device-id>
 
 ## 3. 로그인 SDK iOS 설정
 
-현재 프로젝트는 아래 설정을 복구했다.
+아래는 2026-08-01에 `ios/Runner/Info.plist`와 `ios/Runner.xcodeproj/project.pbxproj`를 직접 열어
+확인한 **현재 실제 값**이다. 이전 판의 표에는 Bundle ID, Kakao/Google scheme이 지금 설정과 다른
+값으로 적혀 있었으니, 이 표를 믿기 전에 위 두 파일과 대조하는 습관을 들인다.
 
 | 항목 | 현재 프로젝트 값 | 목적 |
 | --- | --- | --- |
-| iOS Bundle ID | `com.seohamin.camping` | Apple App ID와 일치해야 한다. |
-| Apple Team ID | `Q5U58YNG6X` | 백업에서 복구한 값이다. 실제 App ID 소유 Team ID와 일치하는지 관리자 확인이 필요하다. |
+| iOS Bundle ID | `com.seohamin.camp.dev` | 개발용이다. 운영 제출 전 `com.seohamin.camping`으로 전환해야 한다. |
+| Apple Team ID | `Q5U58YNG6X` | 백업에서 복구한 값이다. 4절대로 이 팀은 `com.seohamin.camping` 권한이 없다. |
 | Apple entitlement | `com.apple.developer.applesignin` | Sign in with Apple에 필요하다. |
-| Kakao URL Scheme | `kakao735b945f18caa332a29deddf87c80bb8` | Kakao 앱 로그인 콜백에 필요하다. |
-| Google URL Scheme | `com.googleusercontent.apps.203621955396-i15e9g0rirjpd55ju9fn6av6v9s672v3` | Google 로그인 콜백에 필요하다. |
+| Kakao URL Scheme | `kakao0ecef49f91608f40010f59053f36fa9a` | Kakao 앱 로그인 콜백에 필요하다. |
+| Google URL Scheme | `com.googleusercontent.apps.651935780618-up1v7t1gnupp1obmvbgjm6eoqs21q0fn` | Google 로그인 콜백에 필요하다. |
 
 로그인 SDK/백엔드 담당자는 다음 정보를 프론트 담당자에게 제공해야 한다.
 
