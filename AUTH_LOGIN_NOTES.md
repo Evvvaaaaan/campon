@@ -32,6 +32,22 @@
 - 앱은 Kakao 네이티브 SDK가 돌려준 access token을 `code` 필드로 보내고 있었기 때문에 400이 났다.
   `AuthProvider.credentialField`로 provider별 필드명을 나눠 전송하도록 수정했다.
 
+## 2026-08-01 출시 준비 확인 결과
+
+- **iOS Bundle ID를 `com.seohamin.camp.dev`로 확정했다.** 다른 팀이 소유한
+  `com.seohamin.camping`으로 전환하지 않고 현재 값 그대로 출시한다. Kakao iOS 등록도 이 ID에
+  맞춘다. 자세한 배경과 남은 작업은 `RELEASE_CHECKLIST.md` A-2에 있다.
+- **Google iOS OAuth client는 이미 `com.seohamin.camp.dev`로 등록돼 있다** (2026-08-01 확인).
+  위 2026-07-12 절의 "Google iOS 미해결 과제"는 해결된 상태다. `Info.plist`를 파싱해 확인한 결과:
+  - `GIDClientID`(`...up1v7t1gn...`)가 `GIDServerClientID`(`...ncfo4v0ej...`)와 서로 다르다.
+    즉 iOS 전용 client가 발급되어 들어가 있다.
+  - reversed URL scheme `com.googleusercontent.apps.651935780618-up1v7t1gn...`이 `GIDClientID`와
+    일치한다.
+- **아직 남은 것:** Kakao Developers의 iOS bundle ID 등록, Apple App ID에 Sign in with Apple
+  활성화, 그리고 백엔드가 Apple 토큰의 `aud`로 `com.seohamin.camp.dev`를 받아들이는지 확인.
+  네이티브 iOS 로그인에서 `aud`는 bundle ID 그 자체라, 서버가 옛 ID만 허용하면 Apple 로그인이
+  전부 거부된다.
+
 ## 400 원인
 
 - `POST /api/v1/auth/oauth2/google`와 `POST /api/v1/auth/oauth2/apple`는 JSON body에 `code`, `name`을 받습니다.

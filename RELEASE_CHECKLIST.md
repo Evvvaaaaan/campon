@@ -45,9 +45,11 @@ App Store는 bundle ID 문자열에 규칙이 없으므로 `.dev`가 들어가�
       bundle ID 그 자체다. 서버가 `com.seohamin.camping`만 허용하고 있으면 **Apple 로그인이 전부
       거부된다.** 코드의 `APPLE_SERVICE_ID` 기본값이 `com.seohamin.camping`인 것으로 보아 그렇게
       설정돼 있을 가능성이 높으니 반드시 확인한다.
-- [ ] **Google OAuth iOS client**를 `com.seohamin.camp.dev`로 등록한다.
+- [x] **Google OAuth iOS client** — 이미 `com.seohamin.camp.dev`로 등록돼 있다 (2026-08-01 확인).
+      저장소 설정도 일관된 것을 `Info.plist` 파싱으로 확인했다. `GIDClientID`가 `GIDServerClientID`와
+      구분돼 있고(iOS 전용 client가 발급됨), reversed URL scheme이 `GIDClientID`와 일치한다.
 - [ ] **Kakao Developers의 iOS bundle ID**를 `com.seohamin.camp.dev`로 등록한다.
-- [ ] 확인 방법: `grep -rn "com.seohamin.camping" ios/` 결과가 비어 있어야 한다.
+- [x] 확인함: `grep -rn "com.seohamin.camping" ios/` 결과가 비어 있다.
 
 알아둘 점: Android `applicationId`는 여전히 `com.seohamin.camping`이라 두 플랫폼의 식별자가
 갈라진다. 기술적으로 문제는 없지만(Kakao/Google 모두 플랫폼별로 따로 등록한다) 설정할 곳마다
