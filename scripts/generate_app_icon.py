@@ -25,6 +25,7 @@ STAR = (245, 239, 225)  # Cream
 
 MASTER = 1024
 SS = 4  # supersampling 배율
+LAUNCH_WIDTH = 200  # 런치 마크의 1x 가로 크기(=표시 포인트)
 
 # (중심 x, 중심 y, 반지름) — 1024 기준
 STARS = [
@@ -55,20 +56,8 @@ OUTPUTS = {
 }
 
 
-def draw_master() -> Image.Image:
-    size = MASTER * SS
-    img = Image.new("RGB", (size, size), SKY_BOTTOM)
-    draw = ImageDraw.Draw(img)
-
-    # 위에서 아래로 어두워지는 배경. 알파를 쓰지 않으려고 직접 한 줄씩 칠한다.
-    for y in range(size):
-        t = y / (size - 1)
-        draw.line(
-            [(0, y), (size, y)],
-            fill=tuple(
-                round(a + (b - a) * t) for a, b in zip(SKY_TOP, SKY_BOTTOM)
-            ),
-        )
+def draw_mark(draw: ImageDraw.ImageDraw) -> None:
+    """별과 텐트를 그린다. 아이콘과 런치 이미지가 같은 그림을 쓰도록 따로 뺐다."""
 
     def scaled(points):
         return [(x * SS, y * SS) for x, y in points]
@@ -95,19 +84,60 @@ def draw_master() -> Image.Image:
     # 입구
     draw.polygon(scaled([(512, 500), (584, 792), (440, 792)]), fill=DOOR)
 
+
+def draw_master() -> Image.Image:
+    size = MASTER * SS
+    img = Image.new("RGB", (size, size), SKY_BOTTOM)
+    draw = ImageDraw.Draw(img)
+
+    # 위에서 아래로 어두워지는 배경. 알파를 쓰지 않으려고 직접 한 줄씩 칠한다.
+    for y in range(size):
+        t = y / (size - 1)
+        draw.line(
+            [(0, y), (size, y)],
+            fill=tuple(
+                round(a + (b - a) * t) for a, b in zip(SKY_TOP, SKY_BOTTOM)
+            ),
+        )
+
+    draw_mark(draw)
     return img.resize((MASTER, MASTER), Image.LANCZOS)
 
 
+def draw_launch_mark() -> Image.Image:
+    """런치 스크린용 마크. 스토리보드 배경 위에 얹히므로 배경을 비운다."""
+    size = MASTER * SS
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw_mark(ImageDraw.Draw(img))
+    return img.crop(img.getbbox())
+
+
 def main() -> None:
-    target = (
-        Path(__file__).resolve().parent.parent
-        / "ios/Runner/Assets.xcassets/AppIcon.appiconset"
+    assets = (
+        Path(__file__).resolve().parent.parent / "ios/Runner/Assets.xcassets"
     )
+
+    icons = assets / "AppIcon.appiconset"
     master = draw_master()
     for name, px in sorted(OUTPUTS.items(), key=lambda kv: kv[1]):
         icon = master if px == MASTER else master.resize((px, px), Image.LANCZOS)
-        icon.save(target / name, format="PNG")
+        icon.save(icons / name, format="PNG")
         print(f"{name:30} {px}x{px}")
+
+    # 런치 스토리보드는 이미지를 확대하지 않고 가운데 놓으므로(contentMode=center),
+    # 1x 픽셀 크기가 그대로 표시 포인트 크기가 된다.
+    launch = assets / "LaunchImage.imageset"
+    mark = draw_launch_mark()
+    for name, width in (
+        ("LaunchImage.png", LAUNCH_WIDTH),
+        ("LaunchImage@2x.png", LAUNCH_WIDTH * 2),
+        ("LaunchImage@3x.png", LAUNCH_WIDTH * 3),
+    ):
+        height = round(mark.height * width / mark.width)
+        mark.resize((width, height), Image.LANCZOS).save(
+            launch / name, format="PNG"
+        )
+        print(f"{name:30} {width}x{height}")
 
 
 if __name__ == "__main__":
