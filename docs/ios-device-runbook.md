@@ -103,8 +103,8 @@ flutter run -d <device-id>
 
 | 항목 | 현재 프로젝트 값 | 목적 |
 | --- | --- | --- |
-| iOS Bundle ID | `com.seohamin.camp.dev` | 개발용이다. 운영 제출 전 `com.seohamin.camping`으로 전환해야 한다. |
-| Apple Team ID | `Q5U58YNG6X` | 백업에서 복구한 값이다. 4절대로 이 팀은 `com.seohamin.camping` 권한이 없다. |
+| iOS Bundle ID | `com.seohamin.camp.dev` | **출시도 이 값으로 간다** (2026-08-01 결정). `com.seohamin.camping`으로 바꾸지 않는다. |
+| Apple Team ID | `Q5U58YNG6X` | 이 팀으로 출시한다. 유료 Developer Program 가입 여부는 4절 참고. |
 | Apple entitlement | `com.apple.developer.applesignin` | Sign in with Apple에 필요하다. |
 | Kakao URL Scheme | `kakao0ecef49f91608f40010f59053f36fa9a` | Kakao 앱 로그인 콜백에 필요하다. |
 | Google URL Scheme | `com.googleusercontent.apps.651935780618-up1v7t1gnupp1obmvbgjm6eoqs21q0fn` | Google 로그인 콜백에 필요하다. |
@@ -138,8 +138,19 @@ Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign
 Provisioning profile ... doesn't include the com.apple.developer.applesignin entitlement.
 ```
 
-따라서 현재 Xcode에 설정된 Team `Q5U58YNG6X`는 `com.seohamin.camping`을 등록하거나 사용할 권한이 없다. 이는 프론트 코드 오류가 아니다. 로그인 SDK를 만든 개발자에게 "이 Bundle ID를 실제로 소유한 Apple Developer Team ID"를 확인해야 한다.
+따라서 현재 Xcode에 설정된 Team `Q5U58YNG6X`는 `com.seohamin.camping`을 등록하거나 사용할 권한이 없다. 이는 프론트 코드 오류가 아니다.
 
+> **2026-08-01 결정:** 이 문제를 남의 팀 권한을 얻어 푸는 대신, Bundle ID를
+> `com.seohamin.camp.dev`로 유지한 채 팀 `Q5U58YNG6X`로 출시하기로 했다. 따라서 아래
+> "다른 팀에 초대받기" 절차는 더 이상 필요 없다.
+>
+> 대신 **위 오류의 두 번째 줄이 남는다.** 무료 개인 팀은 Sign in with Apple을 쓸 수 없는데,
+> 이 앱은 소셜 로그인을 제공하므로 Guideline 4.8상 Sign in with Apple이 필수다. 즉
+> `Q5U58YNG6X`가 유료 Apple Developer Program에 가입돼 있어야 한다. `developer.apple.com/account`의
+> Membership에서 확인한다. 이후 `Identifiers`에서 `com.seohamin.camp.dev`에 Sign in with Apple을
+> 활성화하고, 이 명시적 App ID 기준 프로파일을 만든다(와일드카드 `*` 프로파일은 지원하지 않는다).
+
+아래는 다른 팀의 App ID를 써야 할 때의 절차다. 위 결정에 따라 현재는 해당하지 않는다.
 팀의 Account Holder 또는 Admin이 처리한다.
 
 1. `developer.apple.com/account`에 로그인한다.

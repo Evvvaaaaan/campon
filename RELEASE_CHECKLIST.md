@@ -22,42 +22,63 @@
 - [x] 확인함: `sips -g hasAlpha -g pixelWidth .../Icon-App-1024x1024@1x.png` → `hasAlpha: no`, `pixelWidth: 1024`
 - [ ] **디자이너 검토는 아직 받지 않았다.** 그림을 바꾸려면 스크립트의 좌표·색만 고치고 다시 실행하면 15개 사이즈가 함께 갱신된다.
 
-### A-2. Bundle ID가 개발용 `com.seohamin.camp.dev`다
+### A-2. Bundle ID — `com.seohamin.camp.dev`로 결정됨 (2026-08-01)
 
-`ios/Runner.xcodeproj/project.pbxproj`의 Debug/Profile/Release 세 구성 모두
-`PRODUCT_BUNDLE_IDENTIFIER = com.seohamin.camp.dev`다. App Store Connect에 등록할 App ID와
-일치하지 않으면 업로드가 거부된다.
+`com.seohamin.camping`으로 전환하지 않고 현재 값 `com.seohamin.camp.dev`로 출시하기로 했다.
+Kakao 등록도 이 ID에 맞춘다.
 
-주의: 값만 바꾸면 로그인이 전부 깨진다. 아래를 **함께** 맞춰야 한다.
+App Store는 bundle ID 문자열에 규칙이 없으므로 `.dev`가 들어가도 심사에서 막히지 않는다. 다만
+**App Store Connect에 앱 레코드를 만드는 순간 이 값은 영구 고정된다.** 나중에 바꾸려면 완전히 새
+앱으로 다시 출시해야 하고 사용자·리뷰·순위를 모두 잃는다. 레코드를 만들기 전이 마지막 되돌릴
+기회다.
 
-- [ ] Apple Developer의 명시적 App ID (`com.seohamin.camping`)
-- [ ] 해당 App ID의 provisioning profile (와일드카드 `*` 프로파일 사용 금지 — Sign in with Apple 미지원)
-- [ ] Google OAuth iOS client의 bundle ID
-- [ ] Kakao Developers의 iOS bundle ID
-- [ ] 백엔드가 검증하는 client 식별자
-- [ ] 확인 방법: `grep -n "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj`
+프로젝트 쪽은 정리를 마쳤다. RunnerTests 타깃만 `com.seohamin.camping.RunnerTests`로 남아 있어
+자동 서명이 소유하지 않은 네임스페이스를 등록하려 드는 상태였는데, `com.seohamin.camp.dev.RunnerTests`로
+맞췄다. 이제 `ios/` 아래에 `com.seohamin.camping` 참조가 없다.
 
-부수 문제: RunnerTests 타깃만 `com.seohamin.camping.RunnerTests`로 남아 있어 Runner 타깃과 접두사가
-어긋난다. Runner를 운영 ID로 바꾸면 자연히 맞는다.
+콘솔과 서버에서 이 ID로 맞춰야 하는 것들:
 
-### A-3. Apple Developer Team 권한이 없다 — 가장 오래 걸릴 항목
+- [ ] **Apple Developer의 명시적 App ID `com.seohamin.camp.dev`.** Sign in with Apple을 활성화하고
+      이 App ID 기준 Distribution provisioning profile을 만든다. 와일드카드 `*` 프로파일은
+      Sign in with Apple을 지원하지 않으므로 쓸 수 없다.
+- [ ] **백엔드의 Apple 토큰 audience.** 네이티브 iOS 로그인에서 Apple이 주는 토큰의 `aud` 클레임은
+      bundle ID 그 자체다. 서버가 `com.seohamin.camping`만 허용하고 있으면 **Apple 로그인이 전부
+      거부된다.** 코드의 `APPLE_SERVICE_ID` 기본값이 `com.seohamin.camping`인 것으로 보아 그렇게
+      설정돼 있을 가능성이 높으니 반드시 확인한다.
+- [ ] **Google OAuth iOS client**를 `com.seohamin.camp.dev`로 등록한다.
+- [ ] **Kakao Developers의 iOS bundle ID**를 `com.seohamin.camp.dev`로 등록한다.
+- [ ] 확인 방법: `grep -rn "com.seohamin.camping" ios/` 결과가 비어 있어야 한다.
 
-`docs/ios-device-runbook.md` 4절에 기록된 실제 빌드 실패다.
+알아둘 점: Android `applicationId`는 여전히 `com.seohamin.camping`이라 두 플랫폼의 식별자가
+갈라진다. 기술적으로 문제는 없지만(Kakao/Google 모두 플랫폼별로 따로 등록한다) 설정할 곳마다
+어느 쪽인지 확인해야 한다. Play 출시 때 Android를 어느 쪽으로 갈지 별도로 정한다.
+
+### A-3. Team `Q5U58YNG6X`가 유료 Apple Developer Program 계정인지 확인
+
+A-2에서 `com.seohamin.camp.dev`로 가기로 하면서, 남의 팀 소유인 `com.seohamin.camping`에
+접근할 필요는 없어졌다. 대신 **현재 팀 `Q5U58YNG6X`로 실제 배포가 가능한지**가 남는다.
+
+`docs/ios-device-runbook.md` 4절에 기록된 빌드 실패를 다시 보면 두 번째 줄이 걸린다.
 
 ```text
 Failed Registering Bundle Identifier: com.seohamin.camping
 Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign in with Apple capability.
 ```
 
-현재 Xcode에 설정된 Team `Q5U58YNG6X`(`project.pbxproj` 3곳)는 `com.seohamin.camping`을 등록할
-권한이 없다. 이 문서 이전 판에는 Team `SNPYTZYZF4`가 적혀 있었다. **두 값 중 어느 쪽이 실제 App ID
-소유 팀인지 아직 확정되지 않았다.** 프론트 코드 문제가 아니라 계정 소유권 문제다.
+첫 줄은 남의 네임스페이스라 그렇다 치더라도, **두 번째 줄은 무료 개인 팀에서도 똑같이 난다.**
+무료 Apple ID 팀은 기기에 직접 설치하는 개발 빌드까지만 되고, App Store 배포도 Sign in with Apple
+capability도 쓸 수 없다. 이 앱은 소셜 로그인을 제공하므로 Guideline 4.8에 따라 Sign in with Apple이
+**필수**라, 무료 팀이면 출시 자체가 불가능하다.
 
-- [ ] App ID를 실제로 소유한 Apple Developer Team ID를 확정한다.
-- [ ] 해당 팀의 Account Holder/Admin이 개발자 Apple ID를 People에 초대한다.
-- [ ] `Identifiers`에서 App ID에 Sign in with Apple을 활성화한다.
-- [ ] 명시적 App ID 기준 Distribution provisioning profile을 생성한다.
+- [ ] **`Q5U58YNG6X`가 유료 Apple Developer Program(연 $99)에 가입돼 있는지 확인한다.**
+      `developer.apple.com/account`의 Membership에서 보인다. 미가입이면 먼저 가입한다.
+      가입 심사에 며칠 걸릴 수 있으니 가장 먼저 확인할 항목이다.
+- [ ] `Identifiers`에서 `com.seohamin.camp.dev` App ID에 Sign in with Apple을 활성화한다.
+- [ ] 이 명시적 App ID 기준 Distribution provisioning profile을 만든다 (와일드카드 금지).
 - [ ] 확인 방법: `flutter build ipa`가 서명 오류 없이 끝난다.
+
+참고: 이 문서 이전 판에는 Team `SNPYTZYZF4`가 적혀 있었으나 근거가 없어 폐기한다. 실제 프로젝트
+설정값은 `Q5U58YNG6X`이고(`project.pbxproj` 3곳), 이 팀으로 출시한다.
 
 ### A-4. 개인정보 처리방침과 이용약관 — 앱 쪽은 준비됨, URL이 없다
 
