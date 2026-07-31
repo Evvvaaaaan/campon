@@ -72,9 +72,9 @@ Provisioning profile "iOS Team Provisioning Profile: *" doesn't support the Sign
 capability도 쓸 수 없다. 이 앱은 소셜 로그인을 제공하므로 Guideline 4.8에 따라 Sign in with Apple이
 **필수**라, 무료 팀이면 출시 자체가 불가능하다.
 
-- [ ] **`Q5U58YNG6X`가 유료 Apple Developer Program(연 $99)에 가입돼 있는지 확인한다.**
-      `developer.apple.com/account`의 Membership에서 보인다. 미가입이면 먼저 가입한다.
-      가입 심사에 며칠 걸릴 수 있으니 가장 먼저 확인할 항목이다.
+- [x] **`Q5U58YNG6X`는 유료 Apple Developer Program 계정이다** (2026-08-01 확인). 따라서 배포와
+      Sign in with Apple 모두 가능하다. 위 오류의 두 번째 줄은 와일드카드 프로파일을 썼기 때문이며,
+      아래처럼 명시적 App ID로 프로파일을 만들면 해소된다.
 - [ ] `Identifiers`에서 `com.seohamin.camp.dev` App ID에 Sign in with Apple을 활성화한다.
 - [ ] 이 명시적 App ID 기준 Distribution provisioning profile을 만든다 (와일드카드 금지).
 - [ ] 확인 방법: `flutter build ipa`가 서명 오류 없이 끝난다.
@@ -93,7 +93,11 @@ Guideline 5.1.1 리젝 사유였다.
 않는다 (`lib/main.dart`).
 
 - [ ] **개인정보 처리방침을 실제 URL에 게시한다.** App Store Connect 제출 시 필수 입력이라 이게
-      없으면 제출 자체가 막힌다.
+      없으면 제출 자체가 막힌다. **초안은 `docs/privacy-policy.md`에 있다.** 앱이 실제로 어떤
+      데이터를 어디로 보내는지는 코드를 추적해 채웠고, 코드로 알 수 없는 것(사업자 정보, 보유
+      기간, 서버 로그 정책)은 `{{ }}`와 ★로 표시해 비워 두었다. 채운 뒤 게시한다.
+- [ ] **Gemini API 등급을 확인한다.** 무료 등급이면 Google이 입력 내용을 품질 개선에 활용할 수
+      있어 처리방침 문구와 App Privacy 답변이 달라진다. `docs/privacy-policy.md` 3절의 ★ 참고.
 - [ ] **이용약관도 게시한다.** 로그인 문구가 언급하고 있으므로 함께 필요하다.
 - [ ] 제출 빌드에 두 값을 넣는다:
       `--dart-define=PRIVACY_POLICY_URL=... --dart-define=TERMS_OF_SERVICE_URL=...`
@@ -115,8 +119,14 @@ Guideline 5.1.1 리젝 사유였다.
       (`lib/main.dart:2827`) `DELETE /api/v1/users`를 호출한 뒤 제공자 로그아웃과 로컬 세션을
       정리한다 (`lib/main.dart:4494`).
 - [x] **Privacy Manifest** — `ios/Runner/PrivacyInfo.xcprivacy` 존재. 추적 없음
-      (`NSPrivacyTracking=false`), 수집 항목은 이메일·이름·User ID를 앱 기능 목적·비추적으로 선언,
-      필수 사유 API는 UserDefaults(CA92.1)와 FileTimestamp(C617.1)로 선언되어 있다.
+      (`NSPrivacyTracking=false`), 필수 사유 API는 UserDefaults(CA92.1)와 FileTimestamp(C617.1)로
+      선언되어 있다. 수집 항목은 이메일·이름·User ID·정밀 위치를 앱 기능 목적·비추적으로 선언한다.
+
+      **2026-08-01에 정밀 위치를 추가했다.** 그전까지는 이메일·이름·User ID만 선언되어 있었는데,
+      앱은 `Geolocator`로 받은 기기 좌표(정확도 100m)를 인증된 요청으로
+      `GET /api/v1/directions`에 보내고 있었다(`lib/main.dart`의 `fetchDirections`,
+      `lib/location/location_service.dart`). 즉 위치가 실제로 기기 밖으로 나가는데 매니페스트에는
+      없었다. 선언이 실제 동작과 다르면 리젝 사유이므로 채웠다.
 - [x] **수출 규정 응답** — `ITSAppUsesNonExemptEncryption=false` (Info.plist). 표준 HTTPS만 쓰므로
       맞는 값이다. 이게 있으면 업로드마다 묻는 절차를 건너뛴다.
 - [x] **Sign in with Apple** (Guideline 4.8) — Google·Kakao 소셜 로그인을 제공하므로 필수인데,
