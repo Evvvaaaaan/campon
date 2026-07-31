@@ -6,10 +6,15 @@ camping weather from Open-Meteo, asks Google Gemini 2.0 Flash for a structured
 plan, and returns it. When `GEMINI_API_KEY` is unset or the model fails, it
 returns a deterministic fallback plan so the app never breaks.
 
+It also serves the night preview: given the numbers the app already computed
+(cloud, wind, night low, moon), Gemini writes a short first-person scene of that
+night at that campsite. The same fallback rule applies — no key, no problem.
+
 - Runtime: Azure Functions v4 (Node 20+), HTTP trigger, anonymous.
-- Endpoint: `POST /api/plan`
+- Endpoints: `POST /api/plan`, `POST /api/preview`
 - LLM: Google Gemini 2.0 Flash (free tier). Key in app setting `GEMINI_API_KEY`.
-- Weather: Open-Meteo (free, keyless).
+- Weather: Open-Meteo (free, keyless). `/api/preview` does not call it — the app
+  sends its own numbers so the scene never contradicts the card the user saw.
 
 ## Local
 
@@ -58,6 +63,14 @@ curl -s -X POST https://$APP.azurewebsites.net/api/plan \
 ```
 
 Expect `"source":"llm"` with a Korean plan (or `"fallback"` if the key is unset).
+
+```sh
+curl -s -X POST https://$APP.azurewebsites.net/api/preview \
+  -H 'content-type: application/json' \
+  -d '{"place":"가리왕산 캠핑장","date":"2026-08-15","people":2,"experience":"초보","weather":{"cloudPct":4,"precipPct":0,"windMs":1.2,"nightLowC":14,"myTempC":30},"sky":{"moonIlluminationPct":4,"moonInterferencePct":3,"score":91,"grade":"milkyWay"}}'
+```
+
+Expect a `preview` with a title, five `lines`, and a `closing`.
 
 ## Point the app at the deployment
 

@@ -43,6 +43,27 @@ abstract interface class LocationProvider {
   Future<void> openSettings(LocationBlockReason reason);
 }
 
+/// 이미 허용된 위치 권한이 있을 때만 좌표를 돌려준다. 권한 팝업을 띄우지 않는다.
+/// 홈 화면처럼 사용자가 요청하지 않은 곳에서 위치를 곁들일 때 쓴다.
+Future<({double lat, double lon})?> readLocationIfAlreadyGranted() async {
+  try {
+    final permission = await Geolocator.checkPermission();
+    final granted =
+        permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+    if (!granted || !await Geolocator.isLocationServiceEnabled()) return null;
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.low,
+        timeLimit: Duration(seconds: 6),
+      ),
+    );
+    return (lat: position.latitude, lon: position.longitude);
+  } catch (_) {
+    return null;
+  }
+}
+
 class GeolocatorLocationProvider implements LocationProvider {
   const GeolocatorLocationProvider();
 

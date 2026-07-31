@@ -22,6 +22,16 @@
   `scripts/bootstrap.sh`를 실행한다. (`flutter clean`이 `tmp_build` 심링크를 지우면 재발함 — 원인은
   iCloud File Provider가 프로젝트 내부의 새 `.framework` 디렉터리에 FinderInfo를 붙이기 때문)
 
+## 2026-07-31 Kakao 400 재검증 결과
+
+- `POST /api/v1/auth/oauth2/kakao`는 이제 서버에 존재한다 (404 아님).
+- Swagger의 `OauthRequestDto`는 `code`, `accessToken`, `name` 세 필드를 가진다.
+- 실제 서버 응답으로 확인한 provider별 필수 필드:
+  - Kakao → `accessToken` (`code`만 보내면 `400 INVALID_REQUEST`)
+  - Google / Apple → `code` (`accessToken`만 보내면 `400 INVALID_REQUEST`)
+- 앱은 Kakao 네이티브 SDK가 돌려준 access token을 `code` 필드로 보내고 있었기 때문에 400이 났다.
+  `AuthProvider.credentialField`로 provider별 필드명을 나눠 전송하도록 수정했다.
+
 ## 400 원인
 
 - `POST /api/v1/auth/oauth2/google`와 `POST /api/v1/auth/oauth2/apple`는 JSON body에 `code`, `name`을 받습니다.
@@ -37,7 +47,8 @@
 - 소셜 로그인은 native SDK에서 provider 인증을 먼저 실행한 뒤, provider가 돌려준 code를 서버로 보냅니다.
   - Google: `POST /api/v1/auth/oauth2/google`
   - Apple: `POST /api/v1/auth/oauth2/apple`
-- Kakao: Flutter SDK 로그인은 연결했지만 2026-07-10 Swagger에는 Kakao JWT 교환 엔드포인트가 없습니다. 서버에 엔드포인트가 추가되면 `KAKAO_BACKEND_AUTH_PATH`로 경로를 주입합니다.
+  - Kakao: `POST /api/v1/auth/oauth2/kakao` — 단, Kakao만 authorization code가 아니라
+    네이티브 SDK access token을 `accessToken` 필드로 보냅니다.
 - 로그인 성공 후 캠핑장 API 요청에는 `Authorization: Bearer {accessToken}` 헤더를 붙입니다.
 - access token 만료 1분 전부터는 `POST /api/v1/auth/token/refresh`로 갱신합니다.
 - 전체 캠핑장 둘러보기는 `GET /api/v1/campsites/nearby`를 사용하며, 현재 서버 동작 기준 반경은 10km입니다.
@@ -85,6 +96,7 @@ flutter run \
 
 ## 남은 확인 사항
 
-- Kakao는 현재 Swagger에 서버 교환 API가 없어서 CampOn JWT 발급까지 완료할 수 없습니다.
+- Kakao 서버 교환 API는 추가되었고 필드명 수정도 끝났지만, 실기기에서 실제 카카오 계정으로
+  CampOn JWT 발급까지 성공하는지는 아직 검증하지 못했습니다.
 - Google/Apple은 provider 콘솔 설정값과 실제 기기 로그인 계정이 있어야 서버 JWT 발급까지 검증할 수 있습니다.
 - 운영 로그인으로 전환하려면 OAuth provider 설정값, redirect URI, iOS bundle identifier, Android package name, Apple Sign in capability 설정이 필요합니다.

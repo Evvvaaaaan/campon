@@ -1,3 +1,4 @@
+import { callGemini } from './_gemini.ts';
 import { fetchWeather } from './_weather.ts';
 import {
   buildFallbackPlan,
@@ -6,32 +7,13 @@ import {
   type Plan,
   type PlanRequest,
 } from './_plan_core.ts';
-
-const MODEL = 'gemini-2.0-flash';
-
-async function callGemini(prompt: string): Promise<unknown> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal: AbortSignal.timeout(25000),
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, responseMimeType: 'application/json' },
-    }),
-  });
-  if (!res.ok) return null;
-  const j: any = await res.json();
-  const text = j?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text !== 'string') return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
+import {
+  buildFallbackPreview,
+  buildPreviewPrompt,
+  coercePreview,
+  type Preview,
+  type PreviewRequest,
+} from './_preview_core.ts';
 
 export async function generatePlan(
   body: PlanRequest,
@@ -40,4 +22,13 @@ export async function generatePlan(
   const raw = await callGemini(buildPrompt(body, weather));
   const plan = raw ? coercePlan(raw, body, weather) : buildFallbackPlan(body, weather);
   return { plan, source: raw ? 'llm' : 'fallback' };
+}
+
+export async function generatePreview(
+  body: PreviewRequest,
+): Promise<{ preview: Preview; source: 'llm' | 'fallback' }> {
+  // 날씨는 앱이 이미 계산해서 보내온다. 여기서 다시 조회하지 않는다.
+  const raw = await callGemini(buildPreviewPrompt(body), 0.95);
+  const preview = raw ? coercePreview(raw, body) : buildFallbackPreview(body);
+  return { preview, source: raw ? 'llm' : 'fallback' };
 }

@@ -8,6 +8,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // 온보딩: 날짜 → 이동수단/숙련도 → 보유 장비(텐트)
+    // 홈 상단에 "오늘 밤" 카드가 있어 추천 카드는 스크롤해야 보인다.
+    await tester.dragUntilVisible(
+      find.text('추천 시작'),
+      find.byType(ListView),
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('추천 시작'));
     await tester.pumpAndSettle();
 

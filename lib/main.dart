@@ -22,7 +22,13 @@ import 'motion/motion.dart';
 import 'planner/plan_models.dart';
 import 'planner/planner_input_screen.dart';
 import 'planner/planner_result_screen.dart';
+import 'preview/night_preview_button.dart';
+import 'preview/night_preview_screen.dart';
+import 'preview/preview_models.dart';
 import 'theme.dart';
+import 'tonight/night_models.dart';
+import 'tonight/tonight_card.dart';
+import 'tonight/tonight_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -257,6 +263,37 @@ class _CampOnShellState extends State<CampOnShell> {
     }
   }
 
+  /// 오늘 밤 카드에 이름을 붙일 대표 캠핑장.
+  ///
+  /// 이미 받아둔 후보만 쓰고 새로 조회하지 않는다. 홈에서 인증 API를 부르면
+  /// 토큰이 만료됐을 때 카드 문구 하나 때문에 로그인 화면으로 튕길 수 있다.
+  /// 후보가 없으면 지역명으로 표시된다.
+  Future<String?> _loadTonightDestination() async =>
+      _planCandidates.isEmpty ? null : _planCandidates.first.name;
+
+  void _openNightPreview(NightSky night, String place, int? myTempC) {
+    openNightPreview(
+      context,
+      input: PreviewInput(
+        place: place,
+        date: night.date,
+        moonIlluminationPct: night.moonIlluminationPct,
+        moonInterferencePct: night.moonInterferencePct,
+        score: night.score,
+        grade: night.grade.name,
+        people: _people,
+        experience: _skillLevel ?? '초보',
+        cloudPct: night.cloudPct,
+        precipPct: night.precipPct,
+        windMs: night.windMs,
+        nightLowC: night.nightLowC,
+        myTempC: myTempC,
+      ),
+      actionLabel: '이 밤에 갈 캠핑장 보기',
+      onAction: _goBrowse,
+    );
+  }
+
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -473,6 +510,10 @@ class _CampOnShellState extends State<CampOnShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
+        // 로그인은 배경이 노치까지 꽉 차는 풀블리드 화면이다.
+        // 내부 콘텐츠는 LoginScreen이 자체 SafeArea로 띄운다.
+        top: _step != AppStep.login,
+        bottom: _step != AppStep.login,
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
           switchInCurve: Curves.easeOutCubic,
@@ -527,6 +568,15 @@ class _CampOnShellState extends State<CampOnShell> {
           onStart: _startOnboarding,
           onBrowse: _goBrowse,
           onPlanner: _goPlanner,
+          tonightCard: TonightCard(
+            regionName: _region.name,
+            lat: _region.lat,
+            lon: _region.lon,
+            service: TonightService(location: readLocationIfAlreadyGranted),
+            destinationLoader: _loadTonightDestination,
+            onExplore: _goBrowse,
+            onPreview: _openNightPreview,
+          ),
         );
       case AppStep.onboardingBasics:
         return BasicsScreen(
@@ -656,14 +706,24 @@ class _CampOnShellState extends State<CampOnShell> {
 }
 
 enum AuthProvider {
-  kakao('Kakao', '/api/v1/auth/oauth2/kakao'),
-  google('Google', '/api/v1/auth/oauth2/google'),
-  apple('Apple', '/api/v1/auth/oauth2/apple');
+  kakao('Kakao', '/api/v1/auth/oauth2/kakao', 'accessToken'),
+  google('Google', '/api/v1/auth/oauth2/google', 'code'),
+  apple('Apple', '/api/v1/auth/oauth2/apple', 'code');
 
-  const AuthProvider(this.label, this.path);
+  const AuthProvider(this.label, this.path, this.credentialField);
 
   final String label;
   final String path;
+
+  /// 서버 `OauthRequestDto`는 provider마다 다른 필드를 요구한다.
+  /// Kakao는 네이티브 SDK가 내려준 access token(`accessToken`)을,
+  /// Google/Apple은 authorization code(`code`)를 받는다.
+  final String credentialField;
+
+  Map<String, String> authRequestBody({
+    required String credential,
+    required String name,
+  }) => <String, String>{credentialField: credential, 'name': name};
 
   String get storageValue => name;
 
@@ -844,29 +904,37 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+        // 라인아트 산맥. 디자인에서는 버튼 스택 위로 화면 전체 폭에 깔린다.
+        // 디자인의 추가 opacity 0.5는 뺐다. 배경 사진이 없는 지금은 그대로 두면
+        // 단색 위에서 형체가 보이지 않는다.
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 210,
+          height: 90,
+          child: CustomPaint(painter: _MountainRangePainter()),
+        ),
         SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              // 세로 패딩(24+24)을 빼야 최소 높이가 뷰포트를 넘지 않는다.
+              // 빼지 않으면 내용이 짧아도 항상 48px만큼 잘린다.
+              const verticalPadding = 48.0;
               return SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  constraints: BoxConstraints(
+                    minHeight: (constraints.maxHeight - verticalPadding)
+                        .clamp(0.0, double.infinity),
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        height: 64,
-                        width: double.infinity,
-                        child: CustomPaint(
-                          painter: const _MountainRangePainter(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                       Text(
                         '캠핑을 시작할\n계정을 선택해주세요',
                         style: CampText.display.copyWith(
-                          fontSize: 34,
+                          fontSize: 38,
                           height: 1.18,
                           color: CampColors.onPrimary,
                         ),
@@ -879,14 +947,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 22),
-                      Text(
-                        '소셜 로그인',
-                        style: CampText.captionStrong.copyWith(
-                          color: CampColors.greenTint,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
                       SocialLoginButton(
                         label: '카카오로 계속하기',
                         leading: SvgPicture.string(_kakaoLogoSvg),
@@ -987,6 +1047,32 @@ class _LoginScreenState extends State<LoginScreen> {
       ],
     );
   }
+}
+
+/// 홈 히어로 우상단의 별 장식. 디자인 SVG(70×30 viewBox)의 좌표를 그대로 쓴다.
+class _HeroStarsPainter extends CustomPainter {
+  const _HeroStarsPainter();
+
+  static const _stars = <(double, double, double)>[
+    (6, 8, 1.6),
+    (24, 4, 1.2),
+    (42, 12, 1.8),
+    (60, 6, 1.3),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = CampColors.amberTint.withValues(alpha: 0.7);
+    final scaleX = size.width / 70;
+    final scaleY = size.height / 30;
+    for (final (x, y, radius) in _stars) {
+      canvas.drawCircle(Offset(x * scaleX, y * scaleY), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _HeroStarsPainter oldDelegate) => false;
 }
 
 class _MountainRangePainter extends CustomPainter {
@@ -1092,12 +1178,16 @@ class HomeScreen extends StatelessWidget {
     required this.onStart,
     required this.onBrowse,
     required this.onPlanner,
+    required this.tonightCard,
     super.key,
   });
 
   final VoidCallback onStart;
   final VoidCallback onBrowse;
   final VoidCallback onPlanner;
+
+  /// 홈 최상단의 "오늘 밤 지수" 카드. 셸이 만들어 넣어준다.
+  final Widget tonightCard;
 
   @override
   Widget build(BuildContext context) {
@@ -1130,6 +1220,8 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 18),
+        tonightCard,
+        const SizedBox(height: 16),
         ClipRRect(
           borderRadius: BorderRadius.circular(22),
           child: SizedBox(
@@ -1142,25 +1234,28 @@ class HomeScreen extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [CampColors.forest, CampColors.forestMid],
+                      colors: [CampColors.forestMid, CampColors.forest],
                     ),
                   ),
                 ),
-                Positioned(
+                // 디자인의 히어로 오버레이(160deg, rgba(20,40,29,0.55)→0.9).
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment(-0.35, -1),
+                      end: Alignment(0.35, 1),
+                      stops: [0.1, 0.9],
+                      colors: [Color(0x8C14281D), Color(0xE614281D)],
+                    ),
+                  ),
+                ),
+                const Positioned(
                   top: 14,
                   right: 16,
-                  child: Row(
-                    children: List.generate(
-                      4,
-                      (index) => Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: Icon(
-                          Icons.circle,
-                          size: index.isEven ? 4 : 3,
-                          color: CampColors.amberTint.withValues(alpha: 0.7),
-                        ),
-                      ),
-                    ),
+                  child: SizedBox(
+                    width: 70,
+                    height: 30,
+                    child: CustomPaint(painter: _HeroStarsPainter()),
                   ),
                 ),
                 Padding(
@@ -1757,6 +1852,15 @@ class CampsiteDetailScreen extends StatelessWidget {
                 fetchDirections: api.fetchDirections,
                 location: const GeolocatorLocationProvider(),
                 site: campsite,
+              ),
+              const SizedBox(height: 22),
+              const FormLabel('그날 밤'),
+              NightPreviewButton(
+                placeName: campsite.name,
+                lat: campsite.lat,
+                lon: campsite.lon,
+                actionLabel: '이 캠핑장으로 준비 시작',
+                onAction: onPrepare,
               ),
               const SizedBox(height: 22),
               const FormLabel('날씨 리스크 · 준비 중'),
@@ -2588,9 +2692,18 @@ class SettingsScreen extends StatelessWidget {
                 valueColor: CampColors.forestMid,
               ),
               const SizedBox(height: 16),
-              CampButton.secondary(label: '로그아웃', onPressed: onSignOut),
+              SizedBox(
+                width: double.infinity,
+                child: CampButton.secondary(
+                  label: '로그아웃',
+                  onPressed: onSignOut,
+                ),
+              ),
               const SizedBox(height: 10),
-              DeleteAccountButton(onDelete: onDeleteAccount),
+              SizedBox(
+                width: double.infinity,
+                child: DeleteAccountButton(onDelete: onDeleteAccount),
+              ),
             ],
           ),
         ),
@@ -2625,9 +2738,12 @@ class SettingsScreen extends StatelessWidget {
                 value: '$equipmentCount개',
               ),
               const SizedBox(height: 16),
-              CampButton.secondary(
-                label: '조건 초기화',
-                onPressed: onResetPreferences,
+              SizedBox(
+                width: double.infinity,
+                child: CampButton.secondary(
+                  label: '조건 초기화',
+                  onPressed: onResetPreferences,
+                ),
               ),
             ],
           ),
@@ -2954,6 +3070,12 @@ class RegionPicker extends StatelessWidget {
       ),
       child: Stack(
         children: [
+          const Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.all(Radius.circular(18)),
+              child: CustomPaint(painter: _RegionTerrainPainter()),
+            ),
+          ),
           for (final region in CampData.regions)
             Positioned(
               left: region.mapX * 0.01 * MediaQuery.sizeOf(context).width - 28,
@@ -2968,6 +3090,46 @@ class RegionPicker extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 지역 지도의 라인아트 지형. 디자인 SVG(360×230 viewBox)의 좌표를 그대로 쓴다.
+class _RegionTerrainPainter extends CustomPainter {
+  const _RegionTerrainPainter();
+
+  static const _ridges = <(List<(double, double)>, Color)>[
+    ([(0, 230), (70, 110), (140, 230)], Color(0x222C4A38)),
+    ([(90, 230), (180, 70), (260, 230)], Color(0x302C4A38)),
+    ([(220, 230), (300, 100), (360, 230)], Color(0x222C4A38)),
+  ];
+
+  static const _dots = <(double, double, double)>[
+    (40, 30, 2),
+    (90, 18, 1.5),
+    (300, 24, 2),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scaleX = size.width / 360;
+    final scaleY = size.height / 230;
+    Offset at(double x, double y) => Offset(x * scaleX, y * scaleY);
+
+    for (final (points, color) in _ridges) {
+      canvas.drawPath(
+        Path()..addPolygon([for (final (x, y) in points) at(x, y)], true),
+        Paint()..color = color,
+      );
+    }
+
+    final dotPaint = Paint()
+      ..color = CampColors.primaryDark.withValues(alpha: 0.5);
+    for (final (x, y, radius) in _dots) {
+      canvas.drawCircle(at(x, y), radius, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RegionTerrainPainter oldDelegate) => false;
 }
 
 class RegionPin extends StatelessWidget {
@@ -3600,7 +3762,7 @@ class ProgressSegments extends StatelessWidget {
                 color: activeIndex >= index
                     ? CampColors.primary
                     : CampColors.hairline,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
           ),
@@ -3640,7 +3802,7 @@ class CampCard extends StatelessWidget {
   const CampCard({
     required this.child,
     this.backgroundColor = CampColors.surface,
-    this.padding = const EdgeInsets.all(22),
+    this.padding = const EdgeInsets.all(20),
     super.key,
   });
 
@@ -3656,7 +3818,7 @@ class CampCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: backgroundColor,
         border: Border.all(color: CampColors.hairline),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: const [
           BoxShadow(
             color: CampColors.shadow,
@@ -4008,14 +4170,14 @@ class CampOnApi {
 
   Future<void> signInWithOAuth({
     required AuthProvider provider,
-    required String code,
+    required String credential,
     required String name,
   }) async {
     await _setSessionFrom(
       _requestJwt(
         _buildUri(provider.path, <String, String>{}),
         method: 'POST',
-        body: <String, String>{'code': code, 'name': name},
+        body: provider.authRequestBody(credential: credential, name: name),
       ),
       provider: provider,
     );
@@ -4070,7 +4232,7 @@ class CampOnApi {
 
     await signInWithOAuth(
       provider: AuthProvider.google,
-      code: code,
+      credential: code,
       name: account.displayName ?? account.email,
     );
   }
@@ -4112,7 +4274,7 @@ class CampOnApi {
 
     await signInWithOAuth(
       provider: AuthProvider.apple,
-      code: credential.authorizationCode,
+      credential: credential.authorizationCode,
       name: name.isNotEmpty ? name : credential.email ?? 'Apple User',
     );
   }
@@ -4162,12 +4324,12 @@ class CampOnApi {
     );
     debugPrint(
       '[Kakao] 서버 교환 요청 | ${AuthProvider.kakao.path} '
-      'code=카카오 access token (authorization code 아님)',
+      '${AuthProvider.kakao.credentialField}=카카오 access token',
     );
 
     await signInWithOAuth(
       provider: AuthProvider.kakao,
-      code: token.accessToken,
+      credential: token.accessToken,
       name: 'Kakao User',
     );
   }

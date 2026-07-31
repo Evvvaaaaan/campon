@@ -35,7 +35,7 @@ void main() {
     expect(find.text('캠핑을 시작할\n계정을 선택해주세요'), findsOneWidget);
     // 디버그(테스트) 빌드에서는 개발 계정 로그인이 자동 노출된다.
     expect(find.text('개발 계정으로 시작'), findsOneWidget);
-    expect(find.text('소셜 로그인'), findsOneWidget);
+    expect(find.text('카카오로 계속하기'), findsOneWidget);
     expect(find.text('Google로 계속하기'), findsOneWidget);
     expect(find.text('Apple로 계속하기'), findsOneWidget);
     expect(find.byIcon(Icons.apple), findsOneWidget);

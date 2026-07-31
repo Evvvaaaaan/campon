@@ -1,19 +1,14 @@
-import 'dart:io';
-
 import 'package:campon/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-/// 주요 화면을 순회하며 각 화면에서 마커 파일을 남긴다.
-/// 호스트 스크립트가 마커를 감지해 simctl 스크린샷을 찍는다 (디자인 검수용).
+/// 주요 화면을 순회하며 `screenshots/`에 캡처를 남긴다 (디자인 검수용).
 ///
 /// 실행:
 /// flutter drive --driver=test_driver/integration_test.dart \
 ///   --target=integration_test/design_walkthrough_test.dart -d [simulator_id]
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  final markerDir = Directory('${Directory.systemTemp.path}/markers');
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   Future<void> settle(WidgetTester tester, {int ticks = 12}) async {
     for (var i = 0; i < ticks; i++) {
@@ -23,25 +18,39 @@ void main() {
 
   Future<void> capture(WidgetTester tester, String name) async {
     await settle(tester);
-    markerDir.createSync(recursive: true);
-    File('${markerDir.path}/$name').writeAsStringSync(name);
-    // 호스트가 스크린샷을 찍을 시간을 준다.
-    await settle(tester, ticks: 10);
+    await binding.takeScreenshot(name);
   }
 
-  testWidgets('walk through main screens and leave capture markers', (
+  Future<void> waitForHome(WidgetTester tester) async {
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      if (find.text('오늘의 캠핑을\n정리해볼까요?').evaluate().isNotEmpty) return;
+    }
+  }
+
+  testWidgets('walk through main screens and capture screenshots', (
     tester,
   ) async {
+    await binding.convertFlutterSurfaceToImage();
+
     await tester.pumpWidget(const CampOnApp());
+    await settle(tester);
+
+    // 이전 실행의 세션이 기기에 남아 있으면 먼저 로그아웃해서 로그인 화면을 캡처한다.
+    if (find.text('개발 계정으로 시작').evaluate().isEmpty) {
+      await tester.tap(find.text('설정'));
+      await settle(tester);
+      final signOut = find.text('로그아웃');
+      await tester.ensureVisible(signOut);
+      await settle(tester);
+      await tester.tap(signOut);
+      await settle(tester, ticks: 24);
+    }
+
     await capture(tester, '01_login');
 
     await tester.tap(find.text('개발 계정으로 시작'));
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-      if (find.text('오늘의 캠핑을\n정리해볼까요?').evaluate().isNotEmpty) {
-        break;
-      }
-    }
+    await waitForHome(tester);
     await capture(tester, '02_home');
 
     await tester.tap(find.text('캠핑장'));

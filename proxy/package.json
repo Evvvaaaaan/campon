@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "dist/plan.js",
+  "main": "dist/*.js",
   "scripts": {
     "test": "node --test",
-    "build": "esbuild api/plan.ts --bundle --platform=node --format=esm --outfile=dist/plan.js --external:@azure/functions",
+    "build": "esbuild api/plan.ts api/preview.ts --bundle --platform=node --format=esm --outdir=dist --external:@azure/functions",
     "start": "npm run build && func start"
   },
   "dependencies": {
