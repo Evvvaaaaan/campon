@@ -2008,6 +2008,82 @@ class CampsiteListScreen extends StatelessWidget {
   }
 }
 
+/// 하트를 눌러 저장해 둔 캠핑장 목록. 저장된 값을 그대로 그리므로
+/// 네트워크 없이도 보인다.
+class FavoritesScreen extends StatelessWidget {
+  const FavoritesScreen({
+    required this.sites,
+    required this.onSelect,
+    required this.onStartRecommend,
+    super.key,
+  });
+
+  final List<Campsite> sites;
+  final ValueChanged<Campsite> onSelect;
+  final VoidCallback onStartRecommend;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      children: [
+        Text('찜한 캠핑장', style: CampText.displaySmall),
+        const SizedBox(height: 4),
+        Text(
+          '하트를 누른 캠핑장은 이 기기에 저장됩니다.',
+          style: CampText.body.copyWith(color: CampColors.inkMuted80),
+        ),
+        const SizedBox(height: 12),
+        if (sites.isEmpty)
+          CampCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '아직 찜한 캠핑장이 없어요',
+                  style: CampText.sectionTitle.copyWith(fontSize: 17),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '추천 카드나 상세 화면에서 하트를 누르면 여기에 모입니다.',
+                  style: CampText.caption.copyWith(
+                    color: CampColors.inkMuted80,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                CampButton(
+                  label: '추천 시작',
+                  icon: LucideIcons.sparkles,
+                  background: CampColors.forest,
+                  onPressed: onStartRecommend,
+                ),
+              ],
+            ),
+          )
+        else
+          for (var i = 0; i < sites.length; i++) ...[
+            CampsiteCard(
+              site: sites[i],
+              // 추천에서 온 캠핑장만 점수가 있어 목록 안에서 들쭉날쭉해진다.
+              showScore: false,
+              onTap: () => onSelect(sites[i]),
+            )
+                .animate()
+                .fadeIn(duration: 320.ms, delay: (60 * i).ms)
+                .slideY(
+                  begin: 0.1,
+                  end: 0,
+                  duration: 320.ms,
+                  delay: (60 * i).ms,
+                  curve: Curves.easeOutCubic,
+                ),
+            const SizedBox(height: 12),
+          ],
+      ],
+    );
+  }
+}
+
 /// 디자인의 "오늘의 추천" 화면. 카드를 좌우로 넘기며 한 곳씩 고른다.
 class RecommendationSwipeScreen extends StatefulWidget {
   const RecommendationSwipeScreen({
