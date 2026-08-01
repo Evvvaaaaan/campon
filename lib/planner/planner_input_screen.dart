@@ -83,7 +83,7 @@ class _PlannerInputScreenState extends State<PlannerInputScreen> {
                       shape: BoxShape.circle,
                       border: Border.all(color: CampColors.hairline),
                     ),
-                    child: const Icon(LucideIcons.chevronLeft,
+                    child: Icon(LucideIcons.chevronLeft,
                         size: 20, color: CampColors.ink),
                   ),
                 ),
@@ -94,7 +94,7 @@ class _PlannerInputScreenState extends State<PlannerInputScreen> {
           ),
           Expanded(
             child: _loading
-                ? const _GeneratingView()
+                ? _GeneratingView()
                 : SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                     child: revealColumn(
@@ -109,7 +109,7 @@ class _PlannerInputScreenState extends State<PlannerInputScreen> {
           if (!_loading)
             Container(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: CampColors.canvas,
                 border: Border(top: BorderSide(color: CampColors.hairline)),
               ),
@@ -127,7 +127,7 @@ class _PlannerInputScreenState extends State<PlannerInputScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(LucideIcons.sparkles,
+                        Icon(LucideIcons.sparkles,
                             size: 18, color: CampColors.onPrimary),
                         const SizedBox(width: 8),
                         Text('플랜 생성',
@@ -259,17 +259,17 @@ class _GeneratingView extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(LucideIcons.sparkles, size: 18, color: CampColors.primary),
+              Icon(LucideIcons.sparkles, size: 18, color: CampColors.primary),
               const SizedBox(width: 8),
               Text('플랜을 만드는 중...', style: CampText.sectionTitle),
             ],
           ),
           const SizedBox(height: 20),
-          const Shimmer(height: 120),
+          Shimmer(height: 120),
           const SizedBox(height: 16),
-          const Shimmer(height: 96),
+          Shimmer(height: 96),
           const SizedBox(height: 16),
-          const Shimmer(height: 140),
+          Shimmer(height: 140),
         ],
       ),
     );

@@ -92,7 +92,7 @@ class _TonightCardState extends State<TonightCard> {
   Widget build(BuildContext context) {
     final forecast = _forecast;
     if (forecast == null) {
-      return const Shimmer(height: 268);
+      return Shimmer(height: 268);
     }
     return _NightCardBody(
       forecast: forecast,
@@ -222,14 +222,14 @@ class _ScoreBadge extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
-            color: CampColors.primary.withValues(alpha: 0.9),
+            color: CampPalette.light.primary.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
             night.grade.badge,
             style: CampText.finePrint.copyWith(
               fontWeight: FontWeight.w700,
-              color: CampColors.onPrimary,
+              color: CampPalette.light.onPrimary,
             ),
           ),
         ),
@@ -299,14 +299,14 @@ class _RarityLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Icon(LucideIcons.sparkles, size: 14, color: CampColors.primary),
+        Icon(LucideIcons.sparkles, size: 14, color: CampPalette.light.primary),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             '올해 남은 달 없는 토요일 밤 — $count번',
             style: CampText.captionStrong.copyWith(
               fontSize: 12.5,
-              color: CampColors.amberTint,
+              color: CampPalette.light.amberTint,
             ),
           ),
         ),
@@ -334,17 +334,17 @@ class _NightButton extends StatelessWidget {
         height: 46,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: CampColors.primary,
+          color: CampPalette.light.primary,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 17, color: CampColors.onPrimary),
+            Icon(icon, size: 17, color: CampPalette.light.onPrimary),
             const SizedBox(width: 8),
             Text(
               label,
-              style: CampText.button.copyWith(color: CampColors.onPrimary),
+              style: CampText.button.copyWith(color: CampPalette.light.onPrimary),
             ),
           ],
         ),

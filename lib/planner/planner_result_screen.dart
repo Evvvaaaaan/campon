@@ -98,9 +98,9 @@ Widget _circleButton({
 }
 
 class _Card extends StatelessWidget {
-  const _Card({required this.child, this.background = CampColors.surface});
+  const _Card({required this.child, this.background});
   final Widget child;
-  final Color background;
+  final Color? background;
 
   @override
   Widget build(BuildContext context) {
@@ -108,10 +108,10 @@ class _Card extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: background,
+        color: background ?? CampColors.surface,
         border: Border.all(color: CampColors.hairline),
         borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(color: CampColors.shadow, blurRadius: 18, offset: Offset(0, 6)),
         ],
       ),
@@ -165,7 +165,7 @@ class _SummaryCard extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(LucideIcons.sparkles, size: 14, color: CampColors.onPrimary),
+                Icon(LucideIcons.sparkles, size: 14, color: CampColors.onPrimary),
                 const SizedBox(width: 6),
                 Text(summary.mood,
                     style: CampText.captionStrong.copyWith(color: CampColors.onPrimary)),
@@ -216,7 +216,7 @@ class _WeatherCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const _CardLabel(icon: LucideIcons.thermometer, text: '캠핑 날씨'),
+              _CardLabel(icon: LucideIcons.thermometer, text: '캠핑 날씨'),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -292,10 +292,10 @@ class _CampsitesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardLabel(icon: LucideIcons.tent, text: '추천 캠핑장'),
+          _CardLabel(icon: LucideIcons.tent, text: '추천 캠핑장'),
           const SizedBox(height: 14),
           for (var i = 0; i < campsites.length; i++) ...[
-            if (i != 0) const Divider(height: 24, color: CampColors.hairline),
+            if (i != 0) Divider(height: 24, color: CampColors.hairline),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -341,7 +341,7 @@ class _ChecklistCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardLabel(icon: LucideIcons.listChecks, text: '스마트 준비물'),
+          _CardLabel(icon: LucideIcons.listChecks, text: '스마트 준비물'),
           const SizedBox(height: 14),
           for (var i = 0; i < checklist.length; i++) ...[
             if (i != 0) const SizedBox(height: 14),
@@ -379,7 +379,7 @@ class _TimelineCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardLabel(icon: LucideIcons.clock, text: '하루 타임라인'),
+          _CardLabel(icon: LucideIcons.clock, text: '하루 타임라인'),
           const SizedBox(height: 16),
           for (var i = 0; i < timeline.length; i++)
             IntrinsicHeight(
@@ -438,7 +438,7 @@ class _BottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: CampColors.canvas,
         border: Border(top: BorderSide(color: CampColors.hairline)),
       ),
@@ -456,7 +456,7 @@ class _BottomBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(LucideIcons.listChecks, size: 18, color: CampColors.onPrimary),
+                Icon(LucideIcons.listChecks, size: 18, color: CampColors.onPrimary),
                 const SizedBox(width: 8),
                 Text('체크리스트로 보내기',
                     style: CampText.button.copyWith(color: CampColors.onPrimary)),

@@ -46,6 +46,8 @@ dependencies:
   kakao_map_plugin: ^0.4.0
   package_info_plus: ^9.0.1
   url_launcher: ^6.3.1
+  # 이미 전이 의존성으로 들어와 있어 iOS Pod은 추가되지 않는다.
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
