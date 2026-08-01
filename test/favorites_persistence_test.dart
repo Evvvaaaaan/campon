@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:campon/campsites/favorites_store.dart';
 import 'package:campon/main.dart';
 import 'package:campon/theme.dart';
@@ -6,6 +8,85 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   tearDown(() => CampColors.apply(CampPalette.light));
+
+  group('Campsite.toJson', () {
+    test('fromJson으로 되돌리면 모든 값이 그대로다', () {
+      final site = Campsite.fromJson({
+        'campsiteId': 7,
+        'score': 88,
+        'name': '별빛 캠핑장',
+        'lineIntro': '한 줄 소개',
+        'description': '자세한 설명',
+        'lat': 37.5,
+        'lon': 127.1,
+        'distance': 4200,
+        'zipcode': '12345',
+        'tel': '02-000-0000',
+        'resveUrl': 'https://example.com/reserve',
+        'facility': ['SHOWER', 'WIFI'],
+        'thumbnailUrl': 'https://example.com/a.jpg',
+        'trailerAccompanyAt': true,
+        'caravanAccompanyAt': false,
+        'toiletCount': 3,
+        'showerRoomCount': 2,
+        'sinkCount': 1,
+        'equipmentRental': ['TENT'],
+      });
+
+      final restored = Campsite.fromJson(site.toJson());
+
+      expect(restored.id, 7);
+      expect(restored.score, 88);
+      expect(restored.name, '별빛 캠핑장');
+      expect(restored.lineIntro, '한 줄 소개');
+      expect(restored.description, '자세한 설명');
+      expect(restored.lat, 37.5);
+      expect(restored.lon, 127.1);
+      expect(restored.distance, 4200);
+      expect(restored.zipcode, '12345');
+      expect(restored.tel, '02-000-0000');
+      expect(restored.reservationUrl, 'https://example.com/reserve');
+      expect(restored.facility, ['SHOWER', 'WIFI']);
+      expect(restored.thumbnailUrl, 'https://example.com/a.jpg');
+      expect(restored.trailerAccompanyAt, isTrue);
+      expect(restored.caravanAccompanyAt, isFalse);
+      expect(restored.toiletCount, 3);
+      expect(restored.showerRoomCount, 2);
+      expect(restored.sinkCount, 1);
+      expect(restored.equipmentRental, ['TENT']);
+    });
+
+    test('점수가 없으면 왕복 후에도 null이다', () {
+      final site = Campsite.fromJson({
+        'campsiteId': 1,
+        'name': '점수 없는 곳',
+        'facility': <String>[],
+        'equipmentRental': <String>[],
+      });
+
+      expect(site.score, isNull);
+      expect(site.toJson().containsKey('score'), isFalse);
+      expect(Campsite.fromJson(site.toJson()).score, isNull);
+    });
+
+    test('jsonEncode를 거쳐도 값이 유지된다', () {
+      final site = Campsite.fromJson({
+        'campsiteId': 2,
+        'name': '인코딩 테스트',
+        'lat': 37.1,
+        'lon': 128.2,
+        'facility': ['TOILET'],
+        'equipmentRental': <String>[],
+      });
+
+      final decoded = jsonDecode(jsonEncode(site.toJson()));
+      final restored = Campsite.fromJson(decoded as Map<String, dynamic>);
+
+      expect(restored.name, '인코딩 테스트');
+      expect(restored.lat, 37.1);
+      expect(restored.facility, ['TOILET']);
+    });
+  });
 
   group('SharedPrefsFavoritesStore', () {
     test('저장한 id를 그대로 돌려준다', () async {

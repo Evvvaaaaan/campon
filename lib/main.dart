@@ -6010,6 +6010,31 @@ class Campsite {
     );
   }
 
+  /// 로컬 즐겨찾기 저장용. `fromJson`이 읽는 키와 이름을 정확히 맞춰
+  /// 저장한 값을 그대로 되돌릴 수 있게 한다.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'campsiteId': id,
+    // fromJson이 containsKey로 판정하므로, 점수가 없으면 키 자체를 넣지 않는다.
+    if (score != null) 'score': score,
+    'name': name,
+    'lineIntro': lineIntro,
+    'description': description,
+    'lat': lat,
+    'lon': lon,
+    'distance': distance,
+    'zipcode': zipcode,
+    'tel': tel,
+    'resveUrl': reservationUrl,
+    'facility': facility,
+    'thumbnailUrl': thumbnailUrl,
+    'trailerAccompanyAt': trailerAccompanyAt,
+    'caravanAccompanyAt': caravanAccompanyAt,
+    'toiletCount': toiletCount,
+    'showerRoomCount': showerRoomCount,
+    'sinkCount': sinkCount,
+    'equipmentRental': equipmentRental,
+  };
+
   final int id;
   final int? score;
   final String name;
