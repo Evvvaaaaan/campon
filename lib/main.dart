@@ -213,6 +213,7 @@ enum AppStep {
   checklist,
   community,
   browse,
+  favorites,
   onboardingBasics,
   onboardingExperience,
   onboardingPreferences,
@@ -222,7 +223,7 @@ enum AppStep {
   plannerResult,
 }
 
-enum DetailEntry { recommendations, browse }
+enum DetailEntry { recommendations, browse, favorites }
 
 class CampOnShell extends StatefulWidget {
   const CampOnShell({this.api, this.favoritesStore, super.key});
@@ -314,6 +315,7 @@ class _CampOnShellState extends State<CampOnShell> {
   bool get _showTabs => const {
     AppStep.home,
     AppStep.browse,
+    AppStep.favorites,
     AppStep.recommendations,
     AppStep.checklist,
     AppStep.settings,
@@ -321,6 +323,10 @@ class _CampOnShellState extends State<CampOnShell> {
 
   void _goHome() {
     setState(() => _step = AppStep.home);
+  }
+
+  void _goFavorites() {
+    setState(() => _step = AppStep.favorites);
   }
 
   void _startOnboarding() {
@@ -437,9 +443,11 @@ class _CampOnShellState extends State<CampOnShell> {
         case AppStep.onboardingPreferences:
           _step = AppStep.onboardingExperience;
         case AppStep.details:
-          _step = _detailEntry == DetailEntry.browse
-              ? AppStep.browse
-              : AppStep.recommendations;
+          _step = switch (_detailEntry) {
+            DetailEntry.browse => AppStep.browse,
+            DetailEntry.favorites => AppStep.favorites,
+            DetailEntry.recommendations => AppStep.recommendations,
+          };
         case AppStep.community:
           _step = AppStep.details;
         case AppStep.plannerResult:
@@ -451,6 +459,7 @@ class _CampOnShellState extends State<CampOnShell> {
         case AppStep.login:
         case AppStep.checklist:
         case AppStep.browse:
+        case AppStep.favorites:
         case AppStep.settings:
         case AppStep.onboardingBasics:
         case AppStep.recommendations:
@@ -742,6 +751,8 @@ class _CampOnShellState extends State<CampOnShell> {
           onStart: _startOnboarding,
           onBrowse: _goBrowse,
           onPlanner: _goPlanner,
+          onFavorites: _goFavorites,
+          favoriteCount: _favorites.length,
           tonightCard: TonightCard(
             regionName: _region.name,
             lat: _region.lat,
@@ -862,6 +873,12 @@ class _CampOnShellState extends State<CampOnShell> {
           onResetPreferences: _reset,
           onSignOut: _signOut,
           onDeleteAccount: _deleteAccount,
+        );
+      case AppStep.favorites:
+        return FavoritesScreen(
+          sites: _favorites.values.toList(growable: false),
+          onSelect: (site) => _selectSite(site, DetailEntry.favorites),
+          onStartRecommend: _startOnboarding,
         );
       case AppStep.browse:
         return CampsiteBrowseScreen(
@@ -1389,6 +1406,8 @@ class HomeScreen extends StatelessWidget {
     required this.onStart,
     required this.onBrowse,
     required this.onPlanner,
+    required this.onFavorites,
+    required this.favoriteCount,
     required this.tonightCard,
     super.key,
   });
@@ -1396,6 +1415,8 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onBrowse;
   final VoidCallback onPlanner;
+  final VoidCallback onFavorites;
+  final int favoriteCount;
 
   /// 홈 최상단의 "오늘 밤 지수" 카드. 셸이 만들어 넣어준다.
   final Widget tonightCard;
@@ -1575,6 +1596,38 @@ class HomeScreen extends StatelessWidget {
                 foreground: CampColors.forest,
                 borderColor: CampColors.forest,
                 onPressed: onBrowse,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        CampCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SettingsIcon(icon: LucideIcons.heart, size: 40),
+                  const SizedBox(width: 12),
+                  Text(
+                    '찜한 캠핑장',
+                    style: CampText.sectionTitle.copyWith(fontSize: 19),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                favoriteCount == 0
+                    ? '마음에 드는 캠핑장에 하트를 눌러보세요.'
+                    : '$favoriteCount곳을 이 기기에 저장해 두었어요.',
+                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              ),
+              const SizedBox(height: 16),
+              CampButton.secondary(
+                label: '찜 목록 보기',
+                foreground: CampColors.forest,
+                borderColor: CampColors.forest,
+                onPressed: onFavorites,
               ),
             ],
           ),
@@ -4755,7 +4808,9 @@ class CampTabBar extends StatelessWidget {
             TabItem(
               icon: LucideIcons.home,
               label: '홈',
-              selected: currentStep == AppStep.home,
+              selected:
+                  currentStep == AppStep.home ||
+                  currentStep == AppStep.favorites,
               onTap: onHome,
             ),
             TabItem(
