@@ -16,6 +16,9 @@ void main() {
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
 
+    await tester.scrollUntilVisible(find.text('1곳을 이 기기에 저장해 두었어요.'), 300);
+    expect(find.text('1곳을 이 기기에 저장해 두었어요.'), findsOneWidget);
+
     await _openFavorites(tester);
 
     expect(find.text('찜한 캠핑장'), findsOneWidget);
@@ -43,6 +46,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
+
+    await tester.scrollUntilVisible(find.text('마음에 드는 캠핑장에 하트를 눌러보세요.'), 300);
+    expect(find.text('마음에 드는 캠핑장에 하트를 눌러보세요.'), findsOneWidget);
 
     await _openFavorites(tester);
 

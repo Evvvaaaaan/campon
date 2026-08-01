@@ -52,6 +52,16 @@ void main() {
     final card = tester.widget<CampsiteCard>(find.byType(CampsiteCard));
     expect(card.showScore, isFalse);
   });
+
+  testWidgets('찜 목록에서는 저장 당시의 거리를 보여주지 않는다', (tester) async {
+    // 찜한 캠핑장의 거리는 저장 당시 검색 지역 기준이라 갱신되지 않으므로,
+    // 다른 지역으로 옮겨도 오래된 거리가 남지 않도록 화면에서 숨긴다.
+    await tester.pumpWidget(_host(_sites(2)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('4.0km'), findsNothing);
+    expect(find.text('8.0km'), findsNothing);
+  });
 }
 
 List<Campsite> _sites(int count) => [

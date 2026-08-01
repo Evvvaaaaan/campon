@@ -2119,6 +2119,8 @@ class FavoritesScreen extends StatelessWidget {
               site: sites[i],
               // 추천에서 온 캠핑장만 점수가 있어 목록 안에서 들쭉날쭉해진다.
               showScore: false,
+              // 찜 당시 검색 지역 기준 거리라 갱신되지 않으므로 보여주지 않는다.
+              showDistance: false,
               onTap: () => onSelect(sites[i]),
             )
                 .animate()
@@ -4501,18 +4503,27 @@ class CampsiteCard extends StatelessWidget {
     required this.site,
     required this.showScore,
     required this.onTap,
+    this.showDistance = true,
     super.key,
   });
 
   final Campsite site;
   final bool showScore;
   final VoidCallback onTap;
+  // 찜 목록의 거리는 저장 당시 검색 지역 기준이라 갱신되지 않으므로,
+  // 화면에서 감출 수 있게 한다.
+  final bool showDistance;
 
   @override
   Widget build(BuildContext context) {
     final topRight = showScore
         ? site.scoreLabel
-        : (site.distance > 0 ? _formatDistance(site.distance) : null);
+        : (showDistance && site.distance > 0
+              ? _formatDistance(site.distance)
+              : null);
+    final captionText = showDistance
+        ? site.caption
+        : (site.zipcode.isNotEmpty ? '우편번호 ${site.zipcode}' : '캠핑장');
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
@@ -4567,7 +4578,7 @@ class CampsiteCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    site.caption,
+                    captionText,
                     style: CampText.caption.copyWith(
                       fontSize: 12.5,
                       color: CampColors.inkMuted80,
