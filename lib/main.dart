@@ -253,8 +253,9 @@ class _CampOnShellState extends State<CampOnShell> {
   final Set<String> _equipment = <String>{};
   final Set<String> _preferences = <String>{};
   final Set<String> _checkedItems = <String>{};
-  // 하트를 누른 캠핑장 id. 추천 덱과 상세 화면이 같은 집합을 본다.
-  final Set<int> _favorites = <int>{};
+  // 하트를 누른 캠핑장. 추천 덱과 상세 화면이 같은 값을 본다.
+  // 단건 조회 API가 없어 목록 복원을 위해 캠핑장 정보를 통째로 들고 있는다.
+  final Map<int, Campsite> _favorites = <int, Campsite>{};
 
   // 첫 진입 코치마크. 이 앱은 아직 어떤 설정도 저장하지 않으므로 이 값도
   // 메모리에만 둔다(앱을 새로 켜면 다시 나온다).
@@ -286,7 +287,11 @@ class _CampOnShellState extends State<CampOnShell> {
     if (!mounted || stored.isEmpty) {
       return;
     }
-    setState(() => _favorites.addAll(stored));
+    setState(() {
+      for (final site in stored) {
+        _favorites[site.id] = site;
+      }
+    });
   }
 
   Future<void> _restoreSession() async {
@@ -632,17 +637,17 @@ class _CampOnShellState extends State<CampOnShell> {
   }
 
   void _addFavorite(Campsite site) {
-    if (!_favorites.add(site.id)) {
+    if (_favorites.containsKey(site.id)) {
       return;
     }
-    setState(() {});
+    setState(() => _favorites[site.id] = site);
     _persistFavorites();
   }
 
   void _toggleFavorite(Campsite site) {
     setState(() {
-      if (!_favorites.remove(site.id)) {
-        _favorites.add(site.id);
+      if (_favorites.remove(site.id) == null) {
+        _favorites[site.id] = site;
       }
     });
     _persistFavorites();
@@ -650,7 +655,7 @@ class _CampOnShellState extends State<CampOnShell> {
 
   /// 저장 실패가 화면을 막지는 않는다. 다음 토글에서 다시 기록된다.
   void _persistFavorites() {
-    unawaited(_favoritesStore.write(_favorites));
+    unawaited(_favoritesStore.write(_favorites.values));
   }
 
   @override
@@ -796,7 +801,7 @@ class _CampOnShellState extends State<CampOnShell> {
           onResetCondition: _startOnboarding,
           onSelect: (site) => _selectSite(site, DetailEntry.recommendations),
           onFavorite: _addFavorite,
-          isFavorite: (site) => _favorites.contains(site.id),
+          isFavorite: (site) => _favorites.containsKey(site.id),
         );
       case AppStep.details:
         return CampsiteDetailScreen(
@@ -808,7 +813,7 @@ class _CampOnShellState extends State<CampOnShell> {
           onCommunity: _openCommunity,
           onPrepare: _startPreparation,
           isFavorite:
-              _selectedSite != null && _favorites.contains(_selectedSite!.id),
+              _selectedSite != null && _favorites.containsKey(_selectedSite!.id),
           onToggleFavorite: () {
             if (_selectedSite != null) _toggleFavorite(_selectedSite!);
           },

@@ -89,25 +89,43 @@ void main() {
   });
 
   group('SharedPrefsFavoritesStore', () {
-    test('저장한 id를 그대로 돌려준다', () async {
+    test('저장한 캠핑장을 정보까지 그대로 돌려준다', () async {
       SharedPreferences.setMockInitialValues({});
       const store = SharedPrefsFavoritesStore();
 
-      await store.write({3, 1, 2});
+      await store.write([_site(1, '첫째 캠핑장'), _site(2, '둘째 캠핑장')]);
 
-      expect(await store.read(), {1, 2, 3});
+      final restored = await store.read();
+      expect(restored.map((site) => site.id), [1, 2]);
+      expect(restored.first.name, '첫째 캠핑장');
+      expect(restored.first.thumbnailUrl, 'https://example.com/1.jpg');
     });
 
-    test('저장한 적이 없으면 빈 집합이다', () async {
+    test('저장한 적이 없으면 빈 목록이다', () async {
       SharedPreferences.setMockInitialValues({});
       expect(await const SharedPrefsFavoritesStore().read(), isEmpty);
     });
 
     test('깨진 값은 버리고 읽을 수 있는 것만 남긴다', () async {
       SharedPreferences.setMockInitialValues({
-        'favorite_campsite_ids': ['1', 'oops', '2'],
+        'favorite_campsites': [
+          '{"campsiteId":1,"name":"살아남는 곳"}',
+          'oops',
+          '[1,2,3]',
+        ],
       });
-      expect(await const SharedPrefsFavoritesStore().read(), {1, 2});
+
+      final restored = await const SharedPrefsFavoritesStore().read();
+      expect(restored.map((site) => site.id), [1]);
+      expect(restored.single.name, '살아남는 곳');
+    });
+
+    test('예전 id 목록 키는 읽지 않는다', () async {
+      SharedPreferences.setMockInitialValues({
+        'favorite_campsite_ids': ['1', '2'],
+      });
+
+      expect(await const SharedPrefsFavoritesStore().read(), isEmpty);
     });
   });
 
@@ -126,11 +144,13 @@ void main() {
     await tester.tap(find.byType(FavoriteHeartButton));
     await tester.pumpAndSettle();
 
-    expect(await store.read(), {1});
+    final saved = await store.read();
+    expect(saved.map((site) => site.id), [1]);
+    expect(saved.single.name, '테스트 캠핑장');
   });
 
   testWidgets('다시 누르면 저장소에서도 빠진다', (tester) async {
-    final store = InMemoryFavoritesStore({1});
+    final store = InMemoryFavoritesStore([_site(1, '테스트 캠핑장')]);
     await tester.pumpWidget(
       CampOnApp(api: _StubApi(), favoritesStore: store),
     );
@@ -146,7 +166,7 @@ void main() {
   });
 
   testWidgets('앱을 다시 켜면 저장된 즐겨찾기가 복원된다', (tester) async {
-    final store = InMemoryFavoritesStore({1});
+    final store = InMemoryFavoritesStore([_site(1, '테스트 캠핑장')]);
     await tester.pumpWidget(
       CampOnApp(api: _StubApi(), favoritesStore: store),
     );
@@ -162,6 +182,16 @@ void main() {
     expect(heart.isFavorite, isTrue);
   });
 }
+
+Campsite _site(int id, String name) => Campsite.fromJson({
+  'campsiteId': id,
+  'name': name,
+  'lat': 37.8,
+  'lon': 128.1,
+  'thumbnailUrl': 'https://example.com/$id.jpg',
+  'facility': <String>[],
+  'equipmentRental': <String>[],
+});
 
 Future<void> _skipTutorial(WidgetTester tester) async {
   await tester.tap(find.text('건너뛰기'));
