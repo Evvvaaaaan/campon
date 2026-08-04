@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Superpowers SDD 작업 디렉터리(로컬 스크래치)
+.superpowers/

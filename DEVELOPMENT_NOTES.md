@@ -28,6 +28,7 @@
 - `GET /api/v1/campsites/nearby`는 `radius=70000`에서 `400 INVALID_REQUEST`가 재현되어 앱 조회 반경을 `10000`으로 낮췄습니다.
 - 추천 API의 배열 쿼리는 반복 파라미터 형식으로 보냅니다. 선택값이 없을 때는 `preferredConditions=&equipments=`를 보냅니다.
 - 전체 캠핑장 목록 API가 명세에 없어, "모든 캠핑장" 화면은 선택 지역 중심의 `nearby` API로 구현했습니다.
+- 즐겨찾기는 서버 API가 없어 기기 로컬(shared_preferences 키 `favorite_campsites`)에만 저장합니다. 캠핑장 단건 조회 API도 없어 id가 아니라 캠핑장 정보 전체를 JSON으로 저장하고, 홈의 "찜한 캠핑장" 카드에서 목록을 봅니다.
 
 ## 확인 필요
 

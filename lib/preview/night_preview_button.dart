@@ -93,10 +93,10 @@ class _NightPreviewButtonState extends State<NightPreviewButton> {
         ),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               LucideIcons.moonStar,
               size: 22,
-              color: CampColors.amberTint,
+              color: CampPalette.light.amberTint,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -122,12 +122,12 @@ class _NightPreviewButtonState extends State<NightPreviewButton> {
             ),
             const SizedBox(width: 10),
             if (_opening)
-              const SizedBox(
+              SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: CampColors.amberTint,
+                  color: CampPalette.light.amberTint,
                 ),
               )
             else

@@ -112,6 +112,192 @@ class _StarFieldPainter extends CustomPainter {
   bool shouldRepaint(_StarFieldPainter old) => old.progress != progress;
 }
 
+/// 옆으로 천천히 흘러가는 안개 띠.
+///
+/// [StarField]와 같은 이유로 [driftCycles]번만 돌고 멈춘다. 주기가 정수라
+/// 마지막 프레임이 첫 프레임과 같아 멈출 때 튀지 않는다.
+class DriftingFog extends StatefulWidget {
+  const DriftingFog({
+    super.key,
+    this.color = NightPalette.star,
+    this.driftCycles = 2,
+  });
+
+  final Color color;
+  final int driftCycles;
+
+  @override
+  State<DriftingFog> createState() => _DriftingFogState();
+}
+
+class _DriftingFogState extends State<DriftingFog>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Duration(seconds: 8 * widget.driftCycles),
+  )..forward();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => CustomPaint(
+        painter: _FogPainter(
+          _controller.value * widget.driftCycles,
+          widget.color,
+        ),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _FogPainter extends CustomPainter {
+  const _FogPainter(this.progress, this.color);
+
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 두 겹이 서로 다른 속도로 흘러야 납작한 띠가 아니라 안개처럼 보인다.
+    void band(double centerY, double rx, double ry, double speed, double alpha) {
+      final shift = math.sin((progress + speed) * 2 * math.pi) * size.width * 0.12;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(size.width * 0.5 + shift, centerY),
+          width: rx * 2,
+          height: ry * 2,
+        ),
+        Paint()
+          ..color = color.withValues(alpha: alpha)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+      );
+    }
+
+    band(size.height * 0.45, size.width * 0.34, size.height * 0.30, 0, 0.20);
+    band(size.height * 0.66, size.width * 0.42, size.height * 0.24, 0.4, 0.12);
+  }
+
+  @override
+  bool shouldRepaint(_FogPainter old) => old.progress != progress;
+}
+
+/// 흔들리는 모닥불과 그 아래 번지는 잔광.
+class Campfire extends StatefulWidget {
+  const Campfire({
+    super.key,
+    this.size = 30,
+    this.flickerCycles = 6,
+    this.flameColor = const Color(0xFFE8944A),
+  });
+
+  final double size;
+  final int flickerCycles;
+  final Color flameColor;
+
+  @override
+  State<Campfire> createState() => _CampfireState();
+}
+
+class _CampfireState extends State<Campfire>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: 1600 * widget.flickerCycles),
+  )..forward();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final phase = _controller.value * widget.flickerCycles * 2 * math.pi;
+        final flicker = 0.85 + 0.15 * math.sin(phase);
+        final glow = 0.55 + 0.45 * math.sin(phase * 0.75);
+        return SizedBox(
+          width: widget.size * 4,
+          height: widget.size * 2.2,
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              Positioned(
+                bottom: 0,
+                child: Container(
+                  width: widget.size * 4,
+                  height: widget.size * 1.2,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        widget.flameColor.withValues(alpha: 0.55 * glow),
+                        widget.flameColor.withValues(alpha: 0),
+                      ],
+                      stops: const [0, 0.7],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: widget.size * 0.35,
+                child: Transform.scale(
+                  scaleY: flicker,
+                  alignment: Alignment.bottomCenter,
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      child: CustomPaint(
+        size: Size(widget.size * 0.88, widget.size),
+        painter: _FlamePainter(widget.flameColor),
+      ),
+    );
+  }
+}
+
+class _FlamePainter extends CustomPainter {
+  const _FlamePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 디자인 SVG(24×24 viewBox)의 불꽃 경로를 옮긴 것.
+    final s = size.width / 24;
+    final path = Path()
+      ..moveTo(12 * s, 2 * s)
+      ..cubicTo(12 * s, 2 * s, 6 * s, 9 * s, 6 * s, 14 * s)
+      ..arcToPoint(
+        Offset(18 * s, 14 * s),
+        radius: Radius.circular(6 * s),
+        clockwise: false,
+      )
+      ..cubicTo(18 * s, 11 * s, 16 * s, 9 * s, 15 * s, 7 * s)
+      ..cubicTo(15 * s, 9 * s, 14 * s, 10 * s, 13 * s, 10 * s)
+      ..cubicTo(12 * s, 10 * s, 12 * s, 8 * s, 12 * s, 6 * s)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_FlamePainter old) => old.color != color;
+}
+
 /// 실제 조도만큼 차오른 달. [illumination]은 0(삭)~1(보름).
 class MoonGlyph extends StatelessWidget {
   const MoonGlyph({required this.illumination, this.size = 34, super.key});

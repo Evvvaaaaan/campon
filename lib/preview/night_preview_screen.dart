@@ -118,7 +118,7 @@ class _NightPreviewScreenState extends State<NightPreviewScreen> {
                 ),
                 Expanded(
                   child: preview == null
-                      ? const _DrawingNight()
+                      ? _DrawingNight()
                       : _PreviewBody(
                           preview: preview,
                           actionLabel: widget.actionLabel,
@@ -196,7 +196,7 @@ class _PreviewBody extends StatelessWidget {
             style: CampText.bodyStrong.copyWith(
               fontSize: 16,
               height: 1.6,
-              color: CampColors.amberTint,
+              color: CampPalette.light.amberTint,
             ),
           ).animate().fadeIn(duration: 1000.ms, delay: afterLines),
           const SizedBox(height: 30),
@@ -291,12 +291,12 @@ class _NightAction extends StatelessWidget {
         height: 50,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: CampColors.primary,
+          color: CampPalette.light.primary,
           borderRadius: BorderRadius.circular(15),
         ),
         child: Text(
           label,
-          style: CampText.button.copyWith(color: CampColors.onPrimary),
+          style: CampText.button.copyWith(color: CampPalette.light.onPrimary),
         ),
       ),
     );
