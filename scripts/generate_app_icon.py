@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CampOn 앱 아이콘을 브랜드 색상으로 생성한다.
+"""CampOn 앱 아이콘을 홈 헤더 로고와 같은 디자인으로 생성한다.
 
 1024x1024 마스터를 그린 뒤 iOS AppIcon.appiconset이 요구하는 모든 사이즈를 만든다.
 좌표는 1024 기준으로 쓰고, 실제로는 4배 크기로 그린 뒤 축소해 계단 현상을 없앤다.
@@ -14,27 +14,14 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-# lib/theme.dart의 CampColors와 같은 계열을 쓴다.
-SKY_TOP = (47, 82, 64)  # 깊은 숲 그늘
-SKY_BOTTOM = (20, 38, 28)
-TENT_LIT = (217, 138, 71)  # Wood Amber 밝은 면
-TENT_SHADE = (180, 101, 42)  # Wood Amber 그늘진 면
-DOOR = (42, 35, 24)  # Ink — 배경 초록과 구분되는 따뜻한 어둠
-POLE = (232, 220, 196)
-STAR = (245, 239, 225)  # Cream
+# 홈 헤더의 로고 배지와 같은 색상이다.
+# CampPalette.light.forest / CampPalette.dark.primary
+FOREST = (30, 58, 43)
+TENT = (232, 148, 74)
 
 MASTER = 1024
 SS = 4  # supersampling 배율
 LAUNCH_WIDTH = 200  # 런치 마크의 1x 가로 크기(=표시 포인트)
-
-# (중심 x, 중심 y, 반지름) — 1024 기준
-STARS = [
-    (232, 239, 15),
-    (318, 355, 9),
-    (612, 183, 8),
-    (760, 215, 19),
-    (848, 343, 10),
-]
 
 # Contents.json이 요구하는 파일과 픽셀 크기
 OUTPUTS = {
@@ -57,49 +44,24 @@ OUTPUTS = {
 
 
 def draw_mark(draw: ImageDraw.ImageDraw) -> None:
-    """별과 텐트를 그린다. 아이콘과 런치 이미지가 같은 그림을 쓰도록 따로 뺐다."""
+    """홈 헤더의 Lucide tent 아이콘을 1024 기준으로 그린다."""
 
-    def scaled(points):
-        return [(x * SS, y * SS) for x, y in points]
+    def point(x: float, y: float) -> tuple[int, int]:
+        # Lucide의 24x24 뷰포트를 640x640 영역으로 확대한다.
+        return (round((192 + x * 640 / 24) * SS), round((192 + y * 640 / 24) * SS))
 
-    for cx, cy, r in STARS:
-        draw.ellipse(
-            [
-                (cx - r) * SS,
-                (cy - r) * SS,
-                (cx + r) * SS,
-                (cy + r) * SS,
-            ],
-            fill=STAR,
-        )
-
-    # 텐트 꼭대기에서 교차하는 폴 두 개
-    draw.line(scaled([(472, 268), (552, 348)]), fill=POLE, width=11 * SS)
-    draw.line(scaled([(552, 268), (472, 348)]), fill=POLE, width=11 * SS)
-
-    # A형 텐트. 가운데를 기준으로 밝은 면과 그늘진 면을 나눠 입체감을 준다.
-    draw.polygon(scaled([(512, 322), (512, 792), (168, 792)]), fill=TENT_LIT)
-    draw.polygon(scaled([(512, 322), (856, 792), (512, 792)]), fill=TENT_SHADE)
-
-    # 입구
-    draw.polygon(scaled([(512, 500), (584, 792), (440, 792)]), fill=DOOR)
+    width = 34 * SS
+    # lucide-icons의 tent 경로: 두 폴, 출입구, 바닥선.
+    draw.line([point(3.5, 21), point(14, 3)], fill=TENT, width=width, joint="curve")
+    draw.line([point(20.5, 21), point(10, 3)], fill=TENT, width=width, joint="curve")
+    draw.line([point(15.5, 21), point(12, 15), point(8.5, 21)], fill=TENT, width=width, joint="curve")
+    draw.line([point(2, 21), point(22, 21)], fill=TENT, width=width)
 
 
 def draw_master() -> Image.Image:
     size = MASTER * SS
-    img = Image.new("RGB", (size, size), SKY_BOTTOM)
+    img = Image.new("RGB", (size, size), FOREST)
     draw = ImageDraw.Draw(img)
-
-    # 위에서 아래로 어두워지는 배경. 알파를 쓰지 않으려고 직접 한 줄씩 칠한다.
-    for y in range(size):
-        t = y / (size - 1)
-        draw.line(
-            [(0, y), (size, y)],
-            fill=tuple(
-                round(a + (b - a) * t) for a, b in zip(SKY_TOP, SKY_BOTTOM)
-            ),
-        )
-
     draw_mark(draw)
     return img.resize((MASTER, MASTER), Image.LANCZOS)
 
@@ -119,6 +81,9 @@ def main() -> None:
 
     icons = assets / "AppIcon.appiconset"
     master = draw_master()
+    source_icon = Path(__file__).resolve().parent.parent / "assets/branding"
+    source_icon.mkdir(parents=True, exist_ok=True)
+    master.save(source_icon / "campon-home-icon-1024.png", format="PNG")
     for name, px in sorted(OUTPUTS.items(), key=lambda kv: kv[1]):
         icon = master if px == MASTER else master.resize((px, px), Image.LANCZOS)
         icon.save(icons / name, format="PNG")

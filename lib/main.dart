@@ -75,6 +75,7 @@ class AuthConfig {
   );
   static const kakaoJavascriptKey = String.fromEnvironment(
     'KAKAO_JAVASCRIPT_KEY',
+    defaultValue: 'da305f3d0050858669209af771943ff8',
   );
   static const googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
   static const googleServerClientId = String.fromEnvironment(
@@ -105,9 +106,10 @@ class LegalConfig {
   static const termsOfServiceUrl = String.fromEnvironment(
     'TERMS_OF_SERVICE_URL',
   );
-
-  static bool get hasLinks =>
-      privacyPolicyUrl.isNotEmpty || termsOfServiceUrl.isNotEmpty;
+  static const contactEmail = String.fromEnvironment(
+    'LEGAL_CONTACT_EMAIL',
+    defaultValue: 'vmfhrmfoald36@gmail.com',
+  );
 
   /// 링크를 열지 못하면 조용히 실패하지 않고 호출한 쪽이 안내할 수 있게 false를 준다.
   static Future<bool> open(String url) async {
@@ -132,8 +134,7 @@ class CampThemeScope extends InheritedWidget {
   final VoidCallback toggle;
 
   static CampThemeScope of(BuildContext context) {
-    final scope = context
-        .dependOnInheritedWidgetOfExactType<CampThemeScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<CampThemeScope>();
     assert(scope != null, 'CampThemeScope가 트리에 없습니다');
     return scope!;
   }
@@ -312,10 +313,15 @@ class _CampOnShellState extends State<CampOnShell> {
 
   bool get _canGoBasicsNext => _date != null;
   bool get _canGoExperienceNext => _hasCar != null && _skillLevel != null;
+  // 온보딩 3단계에는 뒤로가기 버튼이 없다. 탭바가 이 단계에서 유일한 탈출구이므로
+  // 반드시 함께 켜져 있어야 한다.
   bool get _showTabs => const {
     AppStep.home,
     AppStep.browse,
     AppStep.favorites,
+    AppStep.onboardingBasics,
+    AppStep.onboardingExperience,
+    AppStep.onboardingPreferences,
     AppStep.recommendations,
     AppStep.checklist,
     AppStep.settings,
@@ -367,8 +373,11 @@ class _CampOnShellState extends State<CampOnShell> {
   Future<void> _goPlanner() async {
     if (_planCandidates.isEmpty) {
       try {
-        _planCandidates =
-            await _api.fetchNearby(region: _region, page: 0, size: 10);
+        _planCandidates = await _api.fetchNearby(
+          region: _region,
+          page: 0,
+          size: 10,
+        );
       } catch (_) {
         // Planner still works with region-based fallback when candidates fail.
       }
@@ -426,11 +435,13 @@ class _CampOnShellState extends State<CampOnShell> {
       preferences: _preferences.toList(),
       equipment: _equipment.toList(),
       candidates: _planCandidates
-          .map((s) => PlanCandidate(
-                name: s.name,
-                facility: s.facility,
-                equipmentRental: s.equipmentRental,
-              ))
+          .map(
+            (s) => PlanCandidate(
+              name: s.name,
+              facility: s.facility,
+              equipmentRental: s.equipmentRental,
+            ),
+          )
           .toList(),
     );
   }
@@ -438,10 +449,6 @@ class _CampOnShellState extends State<CampOnShell> {
   void _back() {
     setState(() {
       switch (_step) {
-        case AppStep.onboardingExperience:
-          _step = AppStep.onboardingBasics;
-        case AppStep.onboardingPreferences:
-          _step = AppStep.onboardingExperience;
         case AppStep.details:
           _step = switch (_detailEntry) {
             DetailEntry.browse => AppStep.browse,
@@ -462,6 +469,8 @@ class _CampOnShellState extends State<CampOnShell> {
         case AppStep.favorites:
         case AppStep.settings:
         case AppStep.onboardingBasics:
+        case AppStep.onboardingExperience:
+        case AppStep.onboardingPreferences:
         case AppStep.recommendations:
           _step = AppStep.home;
       }
@@ -673,9 +682,7 @@ class _CampOnShellState extends State<CampOnShell> {
     // 추천 단계는 아직 조건을 안 정한 사용자를 온보딩으로 보낸다. 그때도 안내가
     // 이어져야 하므로 탭바 유무가 아니라 로그인/로딩만 제외한다.
     final tutorialVisible =
-        _showTutorial &&
-        _step != AppStep.login &&
-        _step != AppStep.loading;
+        _showTutorial && _step != AppStep.login && _step != AppStep.loading;
     if (!tutorialVisible) return scaffold;
     return Stack(
       children: [
@@ -719,18 +726,16 @@ class _CampOnShellState extends State<CampOnShell> {
           ),
         ),
       ),
+      // 하단 여백은 CampTabBar가 배경색 안쪽에서 직접 처리한다.
       bottomNavigationBar: _showTabs
-          ? SafeArea(
-              top: false,
-              child: CampTabBar(
-                currentStep: _step,
-                hasRecommended: _hasRecommended,
-                onHome: _goHome,
-                onBrowse: _goBrowse,
-                onRecommend: _goRecommendTab,
-                onChecklist: _goChecklist,
-                onSettings: _goSettings,
-              ),
+          ? CampTabBar(
+              currentStep: _step,
+              hasRecommended: _hasRecommended,
+              onHome: _goHome,
+              onBrowse: _goBrowse,
+              onRecommend: _goRecommendTab,
+              onChecklist: _goChecklist,
+              onSettings: _goSettings,
             )
           : null,
     );
@@ -783,7 +788,6 @@ class _CampOnShellState extends State<CampOnShell> {
         return ExperienceScreen(
           hasCar: _hasCar,
           skillLevel: _skillLevel,
-          onBack: _back,
           onHasCarChanged: (hasCar) => setState(() => _hasCar = hasCar),
           onSkillChanged: (skill) => setState(() => _skillLevel = skill),
           onNext: _continueFromExperience,
@@ -794,7 +798,6 @@ class _CampOnShellState extends State<CampOnShell> {
           equipment: _equipment,
           preferences: _preferences,
           withFamily: _withFamily,
-          onBack: _back,
           onEquipmentToggle: (value) => _toggleSetValue(_equipment, value),
           onPreferenceToggle: (value) => _toggleSetValue(_preferences, value),
           onFamilyChanged: (value) => setState(() => _withFamily = value),
@@ -824,7 +827,8 @@ class _CampOnShellState extends State<CampOnShell> {
           onCommunity: _openCommunity,
           onPrepare: _startPreparation,
           isFavorite:
-              _selectedSite != null && _favorites.containsKey(_selectedSite!.id),
+              _selectedSite != null &&
+              _favorites.containsKey(_selectedSite!.id),
           onToggleFavorite: () {
             if (_selectedSite != null) _toggleFavorite(_selectedSite!);
           },
@@ -838,11 +842,7 @@ class _CampOnShellState extends State<CampOnShell> {
           onReset: _reset,
         );
       case AppStep.community:
-        return CommunityScreen(
-          api: _api,
-          site: _selectedSite,
-          onBack: _back,
-        );
+        return CommunityScreen(api: _api, site: _selectedSite, onBack: _back);
       case AppStep.plannerInput:
         return PlannerInputScreen(
           prefill: _buildPlanInput(),
@@ -864,6 +864,7 @@ class _CampOnShellState extends State<CampOnShell> {
         );
       case AppStep.settings:
         return SettingsScreen(
+          api: _api,
           region: _region,
           people: _people,
           hasCar: _hasCar,
@@ -1030,10 +1031,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     if (error is KakaoClientException) {
       final base = switch (error.reason) {
-        ClientErrorCause.notSupported =>
-          '이 기기에서는 카카오 로그인을 사용할 수 없습니다.',
-        ClientErrorCause.tokenNotFound =>
-          '카카오 로그인 정보가 없습니다. 다시 로그인해주세요.',
+        ClientErrorCause.notSupported => '이 기기에서는 카카오 로그인을 사용할 수 없습니다.',
+        ClientErrorCause.tokenNotFound => '카카오 로그인 정보가 없습니다. 다시 로그인해주세요.',
         _ => '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
       };
       return _withDebugDetail(base, '${error.reason.name}: ${error.msg}');
@@ -1053,10 +1052,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     }
     if (error is KakaoException) {
-      return _withDebugDetail(
-        '카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
-        '$error',
-      );
+      return _withDebugDetail('카카오 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.', '$error');
     }
     return '로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
   }
@@ -1161,8 +1157,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: (constraints.maxHeight - verticalPadding)
-                        .clamp(0.0, double.infinity),
+                    minHeight: (constraints.maxHeight - verticalPadding).clamp(
+                      0.0,
+                      double.infinity,
+                    ),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -1285,10 +1283,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 1.5,
                         ),
                       ),
-                      if (LegalConfig.hasLinks) ...[
-                        const SizedBox(height: 6),
-                        LegalLinkRow(),
-                      ],
+                      const SizedBox(height: 6),
+                      const LegalLinkRow(),
                     ],
                   ),
                 ),
@@ -1701,7 +1697,6 @@ class ExperienceScreen extends StatelessWidget {
   const ExperienceScreen({
     required this.hasCar,
     required this.skillLevel,
-    required this.onBack,
     required this.onHasCarChanged,
     required this.onSkillChanged,
     required this.onNext,
@@ -1711,7 +1706,6 @@ class ExperienceScreen extends StatelessWidget {
 
   final bool? hasCar;
   final String? skillLevel;
-  final VoidCallback onBack;
   final ValueChanged<bool> onHasCarChanged;
   final ValueChanged<String> onSkillChanged;
   final VoidCallback onNext;
@@ -1721,7 +1715,6 @@ class ExperienceScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return StepScaffold(
       progressIndex: 1,
-      onBack: onBack,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
         children: [
@@ -1776,7 +1769,6 @@ class PreferencesScreen extends StatelessWidget {
     required this.equipment,
     required this.preferences,
     required this.withFamily,
-    required this.onBack,
     required this.onEquipmentToggle,
     required this.onPreferenceToggle,
     required this.onFamilyChanged,
@@ -1787,7 +1779,6 @@ class PreferencesScreen extends StatelessWidget {
   final Set<String> equipment;
   final Set<String> preferences;
   final bool? withFamily;
-  final VoidCallback onBack;
   final ValueChanged<String> onEquipmentToggle;
   final ValueChanged<String> onPreferenceToggle;
   final ValueChanged<bool> onFamilyChanged;
@@ -1797,7 +1788,6 @@ class PreferencesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return StepScaffold(
       progressIndex: 2,
-      onBack: onBack,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
         children: [
@@ -1862,10 +1852,8 @@ class PreferencesScreen extends StatelessWidget {
   }
 }
 
-typedef CampsiteMapBuilder = Widget Function(
-  List<Campsite> sites,
-  ValueChanged<Campsite> onSelect,
-);
+typedef CampsiteMapBuilder =
+    Widget Function(List<Campsite> sites, ValueChanged<Campsite> onSelect);
 
 class CampsiteBrowseScreen extends StatefulWidget {
   const CampsiteBrowseScreen({
@@ -1939,7 +1927,10 @@ class _CampsiteBrowseScreenState extends State<CampsiteBrowseScreen> {
               }
               final sites = snapshot.data ?? <Campsite>[];
               if (sites.isEmpty) {
-                return EmptyPanel(text: widget.emptyText, onRetry: widget.onRetry);
+                return EmptyPanel(
+                  text: widget.emptyText,
+                  onRetry: widget.onRetry,
+                );
               }
               if (_showMap) {
                 return widget.mapViewBuilder(sites, widget.onSelect);
@@ -1947,7 +1938,10 @@ class _CampsiteBrowseScreenState extends State<CampsiteBrowseScreen> {
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                 children: [
-                  Text(widget.subtitle, style: CampText.body.copyWith(color: CampColors.inkMuted80)),
+                  Text(
+                    widget.subtitle,
+                    style: CampText.body.copyWith(color: CampColors.inkMuted80),
+                  ),
                   const SizedBox(height: 12),
                   for (var i = 0; i < sites.length; i++) ...[
                     CampsiteCard(
@@ -2037,10 +2031,10 @@ class CampsiteListScreen extends StatelessWidget {
               children: [
                 for (var i = 0; i < sites.length; i++) ...[
                   CampsiteCard(
-                    site: sites[i],
-                    showScore: entry == DetailEntry.recommendations,
-                    onTap: () => onSelect(sites[i]),
-                  )
+                        site: sites[i],
+                        showScore: entry == DetailEntry.recommendations,
+                        onTap: () => onSelect(sites[i]),
+                      )
                       .animate()
                       .fadeIn(duration: 320.ms, delay: (60 * i).ms)
                       .slideY(
@@ -2116,13 +2110,13 @@ class FavoritesScreen extends StatelessWidget {
         else
           for (var i = 0; i < sites.length; i++) ...[
             CampsiteCard(
-              site: sites[i],
-              // 추천에서 온 캠핑장만 점수가 있어 목록 안에서 들쭉날쭉해진다.
-              showScore: false,
-              // 찜 당시 검색 지역 기준 거리라 갱신되지 않으므로 보여주지 않는다.
-              showDistance: false,
-              onTap: () => onSelect(sites[i]),
-            )
+                  site: sites[i],
+                  // 추천에서 온 캠핑장만 점수가 있어 목록 안에서 들쭉날쭉해진다.
+                  showScore: false,
+                  // 찜 당시 검색 지역 기준 거리라 갱신되지 않으므로 보여주지 않는다.
+                  showDistance: false,
+                  onTap: () => onSelect(sites[i]),
+                )
                 .animate()
                 .fadeIn(duration: 320.ms, delay: (60 * i).ms)
                 .slideY(
@@ -2181,18 +2175,19 @@ class _RecommendationSwipeScreenState extends State<RecommendationSwipeScreen>
   @override
   void initState() {
     super.initState();
-    _exit = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    )..addStatusListener((status) {
-      if (status != AnimationStatus.completed) return;
-      setState(() {
-        _index++;
-        _dragX = 0;
-        _exitSign = 0;
-      });
-      _exit.reset();
-    });
+    _exit =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 280),
+        )..addStatusListener((status) {
+          if (status != AnimationStatus.completed) return;
+          setState(() {
+            _index++;
+            _dragX = 0;
+            _exitSign = 0;
+          });
+          _exit.reset();
+        });
   }
 
   @override
@@ -2237,7 +2232,10 @@ class _RecommendationSwipeScreenState extends State<RecommendationSwipeScreen>
             }
             final sites = snapshot.data ?? <Campsite>[];
             if (sites.isEmpty) {
-              return EmptyPanel(text: widget.emptyText, onRetry: widget.onRetry);
+              return EmptyPanel(
+                text: widget.emptyText,
+                onRetry: widget.onRetry,
+              );
             }
             return _buildDeck(sites);
           },
@@ -3052,12 +3050,18 @@ class ChecklistScreen extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(LucideIcons.sparkles,
-                        size: 16, color: CampColors.forest),
+                    Icon(
+                      LucideIcons.sparkles,
+                      size: 16,
+                      color: CampColors.forest,
+                    ),
                     const SizedBox(width: 6),
-                    Text('AI 플래너가 이번 캠핑에 맞춰 추천했어요',
-                        style: CampText.captionStrong
-                            .copyWith(color: CampColors.forest)),
+                    Text(
+                      'AI 플래너가 이번 캠핑에 맞춰 추천했어요',
+                      style: CampText.captionStrong.copyWith(
+                        color: CampColors.forest,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -3068,7 +3072,9 @@ class ChecklistScreen extends StatelessWidget {
                     for (final item in aiItems)
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 7),
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
                         decoration: BoxDecoration(
                           color: CampColors.surface,
                           borderRadius: BorderRadius.circular(999),
@@ -3139,8 +3145,9 @@ class ChecklistScreen extends StatelessWidget {
                 for (var index = 0; index < checklistItems.length; index++)
                   ChecklistRow(
                     item: checklistItems[index],
-                    checked:
-                        checkedItems.contains(checklistItems[index].apiValue),
+                    checked: checkedItems.contains(
+                      checklistItems[index].apiValue,
+                    ),
                     showDivider: index != checklistItems.length - 1,
                     onTap: () => onToggle(checklistItems[index].apiValue),
                   ),
@@ -3189,10 +3196,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<List<CampPost>>? _postsFuture;
   bool _composing = false;
   bool _submitting = false;
+  /// 차단한 유저 ID 집합 (글 필터링에 사용)
+  Set<int> _blockedUserIds = const {};
 
   @override
   void initState() {
     super.initState();
+    _loadBlockedUsers();
     _reload();
   }
 
@@ -3203,6 +3213,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
     super.dispose();
   }
 
+  /// 차단 목록 로드 (글 목록 필터링용)
+  Future<void> _loadBlockedUsers() async {
+    try {
+      final blocked = await widget.api.getBlockedUsers();
+      if (mounted) {
+        setState(() {
+          _blockedUserIds = blocked.map((b) => b.blockedUserId).toSet();
+        });
+      }
+    } catch (_) {
+      // 차단 목록 조회 실패 시 필터링 없이 진행
+    }
+  }
+
   void _reload() {
     final site = widget.site;
     if (site == null) {
@@ -3211,6 +3235,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
     setState(() {
       _postsFuture = widget.api.fetchPosts(campsiteId: site.id);
     });
+  }
+
+  /// 특정 유저를 차단하고 목록에서 즉시 제거
+  Future<void> _blockUser(int userId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('이 유저를 차단할까요?'),
+        content: const Text('차단한 유저의 글은 더 이상 표시되지 않아요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('차단', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.api.blockUser(userId);
+      if (mounted) {
+        setState(() {
+          _blockedUserIds = {..._blockedUserIds, userId};
+        });
+        _showMessage('해당 유저를 차단했어요. 이 유저의 글이 숨겨집니다.');
+      }
+    } catch (e) {
+      if (mounted) _showMessage('차단에 실패했어요: $e');
+    }
   }
 
   Future<void> _submitPost() async {
@@ -3286,6 +3343,75 @@ class _CommunityScreenState extends State<CommunityScreen> {
     }
   }
 
+  /// 게시글 신고 POST /api/v1/posts/{postId}/reports
+  Future<void> _reportPost(CampPost post) async {
+    final reasons = <String>[
+      '스팸/광고',
+      '욕설/혐오 표현',
+      '허위 정보',
+      '기타',
+    ];
+    String? selectedReason = reasons.first;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('신고하기'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('신고 사유를 선택해주세요.'),
+              const SizedBox(height: 8),
+              ...reasons.map(
+                (r) => InkWell(
+                  onTap: () => setDlgState(() => selectedReason = r),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          selectedReason == r
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_off,
+                          size: 20,
+                          color: selectedReason == r
+                              ? CampColors.forestMid
+                              : CampColors.inkMuted48,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(r, style: CampText.body),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('신고'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || selectedReason == null) return;
+    try {
+      await widget.api.reportPost(
+        postId: post.id,
+        reason: selectedReason!,
+      );
+      if (mounted) _showMessage('신고가 접수되었어요.');
+    } catch (e) {
+      if (mounted) _showMessage('신고에 실패했어요: $e');
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -3306,7 +3432,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       children: [
-        BackCircleButton(onPressed: widget.onBack),
+        // 상세 화면과 같은 크기·위치로 두려면 가로로 늘어나지 않게 Row로 감싼다.
+        Row(children: [BackCircleButton(onPressed: widget.onBack)]),
         const SizedBox(height: 14),
         Text(
           '${site.name} 커뮤니티',
@@ -3334,12 +3461,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
               return LoadingPanel();
             }
             if (snapshot.hasError) {
-              return ErrorPanel(
-                message: '${snapshot.error}',
-                onRetry: _reload,
-              );
+              return ErrorPanel(message: '${snapshot.error}', onRetry: _reload);
             }
-            final posts = snapshot.data ?? const <CampPost>[];
+            final allPosts = snapshot.data ?? const <CampPost>[];
+            // 차단한 유저의 글 필터링
+            final posts = allPosts
+                .where((p) =>
+                    p.authorId == null ||
+                    !_blockedUserIds.contains(p.authorId))
+                .toList();
             if (posts.isEmpty) {
               return CampCard(
                 child: Column(
@@ -3360,7 +3490,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
             return Column(
               children: [
                 for (final post in posts) ...[
-                  _PostCard(post: post, onDelete: () => _deletePost(post)),
+                  _PostCard(
+                    post: post,
+                    actions: postMenuActions(
+                      post: post,
+                      currentUserId: widget.api.currentUserId,
+                    ),
+                    onDelete: () => _deletePost(post),
+                    onBlock: () => _blockUser(post.authorId!),
+                    onReport: () => _reportPost(post),
+                  ),
                   const SizedBox(height: 12),
                 ],
               ],
@@ -3426,10 +3565,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
 }
 
 class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.onDelete});
+  const _PostCard({
+    required this.post,
+    required this.actions,
+    required this.onDelete,
+    required this.onBlock,
+    required this.onReport,
+  });
 
   final CampPost post;
+
+  /// 더보기 메뉴에 노출할 동작. [postMenuActions]가 정한다.
+  final List<PostAction> actions;
   final VoidCallback onDelete;
+  final VoidCallback onBlock;
+  final VoidCallback onReport;
+
+  static PopupMenuItem<PostAction> _menuItem(PostAction action) {
+    final (IconData icon, String label, Color? color) = switch (action) {
+      PostAction.delete => (Icons.delete_outline, '삭제', null),
+      PostAction.block => (Icons.block, '이 유저 차단', Colors.red),
+      PostAction.report => (Icons.flag_outlined, '신고', Colors.orange),
+    };
+    return PopupMenuItem<PostAction>(
+      value: action,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: color)),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3442,30 +3610,186 @@ class _PostCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: Text(post.title, style: CampText.bodyStrong)),
-              IconButton(
-                tooltip: '삭제',
-                onPressed: onDelete,
-                visualDensity: VisualDensity.compact,
+              // 더보기 메뉴 (삭제 / 차단 / 신고)
+              PopupMenuButton<PostAction>(
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
+                iconSize: 20,
                 icon: Icon(
-                  Icons.delete_outline,
-                  size: 18,
+                  Icons.more_horiz,
+                  size: 20,
                   color: CampColors.inkMuted48,
                 ),
+                onSelected: (action) {
+                  switch (action) {
+                    case PostAction.delete:
+                      onDelete();
+                    case PostAction.block:
+                      onBlock();
+                    case PostAction.report:
+                      onReport();
+                  }
+                },
+                itemBuilder: (context) => [
+                  for (final action in actions) _menuItem(action),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(post.content, style: CampText.body),
-          if (post.createdAtLabel.isNotEmpty) ...[
+          if (post.metaLabel.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              post.createdAtLabel,
+              post.metaLabel,
               style: CampText.finePrint.copyWith(color: CampColors.inkMuted48),
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+enum PostAction { delete, block, report }
+
+/// 게시글 더보기 메뉴에 노출할 동작을 정한다.
+///
+/// 서버가 작성자를 안 내려주는 동안에는 내 글인지 가릴 수 없어서, 차단만 숨기고
+/// 기존 삭제 동작은 그대로 둔다.
+List<PostAction> postMenuActions({
+  required CampPost post,
+  required int? currentUserId,
+}) {
+  final authorId = post.authorId;
+  if (authorId == null) {
+    return const <PostAction>[PostAction.delete, PostAction.report];
+  }
+  if (currentUserId != null && authorId == currentUserId) {
+    return const <PostAction>[PostAction.delete];
+  }
+  return const <PostAction>[PostAction.block, PostAction.report];
+}
+
+/// 차단한 유저 목록을 보여주고 차단을 해제할 수 있는 화면
+class BlockManagementScreen extends StatefulWidget {
+  const BlockManagementScreen({required this.api, super.key});
+
+  final CampOnApi api;
+
+  @override
+  State<BlockManagementScreen> createState() => _BlockManagementScreenState();
+}
+
+class _BlockManagementScreenState extends State<BlockManagementScreen> {
+  late Future<List<BlockedUser>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    setState(() {
+      _future = widget.api.getBlockedUsers();
+    });
+  }
+
+  Future<void> _unblock(BlockedUser user) async {
+    try {
+      await widget.api.unblockUser(user.blockedUserId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('차단을 해제했어요.')),
+      );
+      _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('차단 해제에 실패했어요: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('차단 관리'),
+        centerTitle: true,
+      ),
+      body: FutureBuilder<List<BlockedUser>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('목록을 불러오지 못했어요.\n${snapshot.error}'),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _load,
+                    child: const Text('다시 시도'),
+                  ),
+                ],
+              ),
+            );
+          }
+          final list = snapshot.data ?? <BlockedUser>[];
+          if (list.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 48,
+                    color: CampColors.inkMuted48,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '차단한 유저가 없어요.',
+                    style: CampText.body.copyWith(color: CampColors.inkMuted80),
+                  ),
+                ],
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            itemCount: list.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final user = list[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: CampColors.inkMuted48,
+                  child: Icon(Icons.person, color: CampColors.onPrimary),
+                ),
+                title: Text(user.displayName, style: CampText.bodyStrong),
+                subtitle: user.createdAt != null
+                    ? Text(
+                        '차단일: ${user.createdAt!.year}.${user.createdAt!.month.toString().padLeft(2, '0')}.${user.createdAt!.day.toString().padLeft(2, '0')}',
+                        style: CampText.finePrint
+                            .copyWith(color: CampColors.inkMuted48),
+                      )
+                    : null,
+                trailing: TextButton(
+                  onPressed: () => _unblock(user),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red,
+                  ),
+                  child: const Text('차단 해제'),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -3515,7 +3839,20 @@ class LegalLinkRow extends StatelessWidget {
 
   final Color? color;
 
-  Future<void> _open(BuildContext context, String url) async {
+  Future<void> _open(
+    BuildContext context,
+    String url,
+    LegalDocument document,
+  ) async {
+    if (url.isEmpty) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => LegalDocumentScreen(document: document),
+        ),
+      );
+      return;
+    }
+
     final opened = await LegalConfig.open(url);
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(context)
@@ -3532,16 +3869,16 @@ class LegalLinkRow extends StatelessWidget {
       decorationColor: color ?? CampColors.greenTint,
     );
     final links = <Widget>[
-      if (LegalConfig.termsOfServiceUrl.isNotEmpty)
-        GestureDetector(
-          onTap: () => _open(context, LegalConfig.termsOfServiceUrl),
-          child: Text('이용약관', style: style),
-        ),
-      if (LegalConfig.privacyPolicyUrl.isNotEmpty)
-        GestureDetector(
-          onTap: () => _open(context, LegalConfig.privacyPolicyUrl),
-          child: Text('개인정보 처리방침', style: style),
-        ),
+      GestureDetector(
+        onTap: () =>
+            _open(context, LegalConfig.termsOfServiceUrl, LegalDocument.terms),
+        child: Text('이용약관', style: style),
+      ),
+      GestureDetector(
+        onTap: () =>
+            _open(context, LegalConfig.privacyPolicyUrl, LegalDocument.privacy),
+        child: Text('개인정보 처리방침', style: style),
+      ),
     ];
 
     return Row(
@@ -3560,8 +3897,119 @@ class LegalLinkRow extends StatelessWidget {
   }
 }
 
+enum LegalDocument { terms, privacy }
+
+class LegalDocumentScreen extends StatelessWidget {
+  const LegalDocumentScreen({required this.document, super.key});
+
+  final LegalDocument document;
+
+  @override
+  Widget build(BuildContext context) {
+    final isTerms = document == LegalDocument.terms;
+    final title = isTerms ? '이용약관' : '개인정보 처리방침';
+    final body = isTerms
+        ? LegalDocuments.terms(contactEmail: LegalConfig.contactEmail)
+        : LegalDocuments.privacy(contactEmail: LegalConfig.contactEmail);
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SafeArea(
+        child: SelectionArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+            children: [
+              Text(title, style: CampText.displaySmall),
+              const SizedBox(height: 8),
+              Text(
+                '시행일: 2026년 8월 3일',
+                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              ),
+              const SizedBox(height: 20),
+              Text(body, style: CampText.body.copyWith(height: 1.65)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LegalDocuments {
+  const LegalDocuments._();
+
+  static String terms({required String contactEmail}) =>
+      '''
+제1조 (목적)
+이 약관은 CampOn(이하 “서비스”)의 이용 조건, 이용자와 운영자의 권리·의무 및 책임 사항을 정합니다.
+
+제2조 (서비스)
+서비스는 캠핑장 정보, 추천, 길찾기, 날씨·AI 기반 플랜, 체크리스트 및 커뮤니티 게시글 기능을 제공합니다. 날씨, 길찾기, AI 생성 결과와 캠핑장 정보는 참고용이며, 실제 기상·시설·교통·안전 상황을 보장하지 않습니다. 캠핑 전에는 캠핑장과 관계 기관의 최신 안내를 확인해야 합니다.
+
+제3조 (계정과 이용)
+이용자는 Apple, Google 또는 Kakao 계정으로 로그인할 수 있습니다. 이용자는 자신의 계정 접근 정보를 안전하게 관리해야 하며, 타인의 계정을 사용하거나 서비스 운영을 방해해서는 안 됩니다.
+
+제4조 (이용자 콘텐츠)
+커뮤니티에 작성하는 제목, 본문 등 콘텐츠의 책임은 작성자에게 있습니다. 이용자는 타인의 권리·개인정보를 침해하거나, 불법·혐오·음란·위협·광고성 내용을 게시해서는 안 됩니다. 운영자는 법령 또는 이 약관에 위반되는 콘텐츠를 삭제하거나 이용을 제한할 수 있습니다. 자신의 게시글은 앱에서 삭제할 수 있으며, 권리 침해 신고는 아래 문의처로 알려주시기 바랍니다.
+
+제5조 (지식재산권)
+서비스의 화면, 상표, 소프트웨어 및 운영자가 제공하는 콘텐츠에 관한 권리는 운영자 또는 정당한 권리자에게 있습니다. 이용자가 작성한 콘텐츠의 권리는 작성자에게 남지만, 서비스 제공·표시·운영에 필요한 범위에서 운영자에게 비독점적으로 이용을 허락합니다.
+
+제6조 (서비스 변경 및 중단)
+운영자는 운영·보안·법령상 필요한 경우 서비스의 전부 또는 일부를 변경하거나 중단할 수 있습니다. 중요한 변경은 앱 또는 공개된 처리방침 페이지를 통해 안내합니다.
+
+제7조 (책임의 제한)
+운영자는 고의 또는 중대한 과실이 없는 한, 통신 장애·외부 서비스 장애·이용자 입력 오류·천재지변 등 통제할 수 없는 사유로 발생한 손해에 책임을 지지 않습니다. 이용자는 안전 수칙과 현장 규정을 준수하고, 위험한 기상 또는 현장 상황에서는 캠핑을 취소하거나 관계 기관의 지침을 따라야 합니다.
+
+제8조 (문의 및 약관 변경)
+문의, 신고 및 권리 침해 통지는 $contactEmail 로 보내실 수 있습니다. 이 약관은 법령이나 서비스 변경에 따라 개정될 수 있으며, 중요한 변경은 시행 전에 앱 또는 공개 페이지로 안내합니다.
+''';
+
+  static String privacy({required String contactEmail}) =>
+      '''
+CampOn 운영팀(이하 “운영자”)은 개인정보 보호법 등 관련 법령을 준수하며, 아래와 같이 개인정보를 처리합니다.
+
+1. 처리하는 정보와 목적
+운영자는 소셜 로그인 과정에서 이메일 주소, 이름 또는 표시 이름, 로그인 제공자의 사용자 식별자를 처리합니다. 이는 회원 식별, 로그인 유지, 계정 관리에 사용됩니다.
+
+현재 위치는 이용자가 길찾기 또는 주변 정보 기능을 직접 요청하고 권한을 허용한 경우에만 사용합니다. 위치는 거리·이동 경로·주변 캠핑장 및 날씨 정보를 제공하는 데 사용하며, 백그라운드 위치를 수집하지 않습니다.
+
+인원, 차량 이용 여부, 경험 수준, 희망 지역, 선호 조건, 보유 장비, 플래너에 입력한 문장과 커뮤니티 게시글은 추천, 캠핑 플랜·체크리스트 생성 및 커뮤니티 제공을 위해 처리합니다.
+
+2. 기기 저장 정보
+로그인 토큰은 기기의 보안 저장소에, 즐겨찾기 캠핑장과 일부 앱 설정은 기기에 저장됩니다. 즐겨찾기와 설정은 다른 이용자에게 공개되지 않으며 앱을 삭제하면 기기에서 삭제됩니다.
+
+3. 외부 처리자와 제공 정보
+운영자는 서비스 제공을 위해 다음 외부 서비스를 사용합니다. 광고 목적의 추적이나 제3자 광고 식별자 결합은 하지 않습니다.
+
+· CampOn API 서버: 로그인, 계정, 캠핑장 추천·길찾기, 커뮤니티 게시글 처리
+· Apple, Google, Kakao: 이용자가 선택한 소셜 로그인 인증
+· Microsoft Azure: AI 프록시 서버 운영
+· Google Gemini API: 플랜 또는 밤 풍경 생성에 필요한 캠핑 조건, 질문 문장, 캠핑장 후보 및 좌표 처리
+· Open-Meteo: 캠핑장 좌표에 따른 날씨 조회
+· Kakao Map: 지도 표시를 위한 캠핑장 위치 정보 처리
+
+AI 플랜 요청에는 이메일과 이름을 포함하지 않습니다. 다만 이용자가 질문이나 게시글에 개인정보를 직접 입력하지 않도록 유의해 주세요.
+
+4. 보유 기간과 파기
+계정 관련 정보는 회원 탈퇴 시 또는 처리 목적 달성 시 삭제를 요청합니다. 법령상 보관 의무가 있는 정보는 해당 기간 동안 보관할 수 있습니다. 전자 파일은 복구하기 어려운 방식으로 삭제합니다. 서버 로그·백업의 보관 기간은 보안과 장애 대응을 위해 필요한 최소 범위로 운영합니다.
+
+5. 이용자의 권리
+이용자는 개인정보의 열람, 정정, 삭제, 처리 정지를 요청할 수 있습니다. 회원 탈퇴는 앱 설정의 “회원 탈퇴”에서 할 수 있으며, 위치 권한은 기기 설정에서 철회할 수 있습니다. 요청 또는 문의는 $contactEmail 로 보내주시면 확인 후 처리합니다.
+
+6. 안전성 확보 조치
+앱과 서버 간 통신은 HTTPS로 암호화하며, 인증 토큰은 기기의 보안 저장소에 보관합니다. 운영자는 개인정보 접근 권한을 필요한 담당자로 제한하고, 서비스 제공에 필요한 범위에서만 처리합니다.
+
+7. 아동의 개인정보
+서비스는 만 14세 미만 아동을 대상으로 하지 않으며, 해당 아동의 개인정보를 의도적으로 수집하지 않습니다. 이 사실을 알게 되면 관련 정보를 삭제하기 위해 조치합니다.
+
+8. 처리방침의 변경
+이 처리방침이 변경되면 시행일과 변경 내용을 앱 또는 공개된 처리방침 페이지에 알립니다. 이용자 권리에 중요한 영향을 주는 변경은 충분한 사전 기간을 두고 안내합니다.
+''';
+}
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
+    required this.api,
     required this.region,
     required this.people,
     required this.hasCar,
@@ -3574,6 +4022,7 @@ class SettingsScreen extends StatelessWidget {
     super.key,
   });
 
+  final CampOnApi api;
   final CampRegion region;
   final int people;
   final bool? hasCar;
@@ -3673,6 +4122,51 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
+        // ── 차단 관리 ──────────────────────────────────
+        CampCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('커뮤니티', style: CampText.sectionTitle),
+              const SizedBox(height: 14),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => BlockManagementScreen(api: api),
+                    ),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.block,
+                        size: 18,
+                        color: CampColors.inkMuted80,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '차단 관리',
+                          style: CampText.body,
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: CampColors.inkMuted48,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
         Builder(
           builder: (context) {
             final scope = CampThemeScope.of(context);
@@ -3689,11 +4183,7 @@ class SettingsScreen extends StatelessWidget {
         CampCard(
           child: Row(
             children: [
-              Icon(
-                LucideIcons.bell,
-                size: 18,
-                color: CampColors.forestMid,
-              ),
+              Icon(LucideIcons.bell, size: 18, color: CampColors.forestMid),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -3734,10 +4224,15 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 14),
               ],
               AppVersionRow(),
-              if (LegalConfig.hasLinks) ...[
-                const SizedBox(height: 16),
-                LegalLinkRow(color: CampColors.inkMuted80),
-              ],
+              const SizedBox(height: 16),
+              Text('법적 고지', style: CampText.sectionTitle),
+              const SizedBox(height: 8),
+              Text(
+                '이용약관과 개인정보 처리방침을 확인할 수 있어요.',
+                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              ),
+              const SizedBox(height: 8),
+              LegalLinkRow(color: CampColors.inkMuted80),
             ],
           ),
         ),
@@ -3865,10 +4360,7 @@ class TutorialOverlay extends StatelessWidget {
   static const steps = <(String, String)>[
     ('환영해요, 캠퍼님 👋', '홈에서 오늘의 캠핑 추천과 준비 흐름을 한눈에 확인해요.'),
     ('캠핑장을 둘러보세요', '현재 위치 근처 캠핑장 목록이에요. 카드를 누르면 상세정보로 들어가요.'),
-    (
-      '추천에서 골라보세요',
-      '조건을 정하면 추천 카드가 나와요. 하트를 누르면 저장하고, X를 누르면 다음 캠핑장으로 넘어가요.',
-    ),
+    ('추천에서 골라보세요', '조건을 정하면 추천 카드가 나와요. 하트를 누르면 저장하고, X를 누르면 다음 캠핑장으로 넘어가요.'),
     ('체크리스트로 준비해요', '항목을 눌러 체크하면 진행률과 부족한 장비가 실시간으로 업데이트돼요.'),
     ('나만의 환경으로', '설정에서 야간 캠핑 테마 등 앱 동작을 자유롭게 바꿀 수 있어요.'),
   ];
@@ -3998,7 +4490,11 @@ class _TutorialCard extends StatelessWidget {
         color: light.surface,
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
-          BoxShadow(color: Color(0x590E1F17), blurRadius: 44, offset: Offset(0, 20)),
+          BoxShadow(
+            color: Color(0x590E1F17),
+            blurRadius: 44,
+            offset: Offset(0, 20),
+          ),
         ],
       ),
       child: Column(
@@ -4195,30 +4691,20 @@ class StepScaffold extends StatelessWidget {
     required this.progressIndex,
     required this.body,
     required this.bottom,
-    this.onBack,
     super.key,
   });
 
   final int progressIndex;
   final Widget body;
   final Widget bottom;
-  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(onBack == null ? 20 : 14, 4, 20, 0),
-          child: Row(
-            children: [
-              if (onBack != null) ...[
-                BackCircleButton(onPressed: onBack!),
-                const SizedBox(width: 12),
-              ],
-              Expanded(child: ProgressSegments(activeIndex: progressIndex)),
-            ],
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          child: ProgressSegments(activeIndex: progressIndex),
         ),
         const SizedBox(height: 18),
         Expanded(child: body),
@@ -4760,11 +5246,7 @@ class ChecklistRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(7),
               ),
               child: checked
-                  ? Icon(
-                      Icons.check,
-                      size: 14,
-                      color: CampColors.onPrimary,
-                    )
+                  ? Icon(Icons.check, size: 14, color: CampColors.onPrimary)
                   : null,
             ),
             const SizedBox(width: 12),
@@ -4812,47 +5294,52 @@ class CampTabBar extends StatelessWidget {
         color: CampColors.surface,
         border: Border(top: BorderSide(color: CampColors.hairline)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 6),
-        child: Row(
-          children: [
-            TabItem(
-              icon: LucideIcons.home,
-              label: '홈',
-              selected:
-                  currentStep == AppStep.home ||
-                  currentStep == AppStep.favorites,
-              onTap: onHome,
-            ),
-            TabItem(
-              icon: LucideIcons.mapPin,
-              label: '캠핑장',
-              selected: currentStep == AppStep.browse,
-              onTap: onBrowse,
-            ),
-            TabItem(
-              icon: LucideIcons.star,
-              label: '추천',
-              selected:
-                  currentStep == AppStep.recommendations ||
-                  currentStep == AppStep.onboardingBasics ||
-                  currentStep == AppStep.onboardingExperience ||
-                  currentStep == AppStep.onboardingPreferences,
-              onTap: onRecommend,
-            ),
-            TabItem(
-              icon: LucideIcons.checkSquare,
-              label: '체크리스트',
-              selected: currentStep == AppStep.checklist,
-              onTap: onChecklist,
-            ),
-            TabItem(
-              icon: LucideIcons.settings,
-              label: '설정',
-              selected: currentStep == AppStep.settings,
-              onTap: onSettings,
-            ),
-          ],
+      // 홈 인디케이터 여백을 색이 칠해진 안쪽에서 확보해야
+      // 화면 맨 아래까지 같은 색으로 이어지고 바가 떠 보이지 않는다.
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 6),
+          child: Row(
+            children: [
+              TabItem(
+                icon: LucideIcons.home,
+                label: '홈',
+                selected:
+                    currentStep == AppStep.home ||
+                    currentStep == AppStep.favorites,
+                onTap: onHome,
+              ),
+              TabItem(
+                icon: LucideIcons.mapPin,
+                label: '캠핑장',
+                selected: currentStep == AppStep.browse,
+                onTap: onBrowse,
+              ),
+              TabItem(
+                icon: LucideIcons.star,
+                label: '추천',
+                selected:
+                    currentStep == AppStep.recommendations ||
+                    currentStep == AppStep.onboardingBasics ||
+                    currentStep == AppStep.onboardingExperience ||
+                    currentStep == AppStep.onboardingPreferences,
+                onTap: onRecommend,
+              ),
+              TabItem(
+                icon: LucideIcons.checkSquare,
+                label: '체크리스트',
+                selected: currentStep == AppStep.checklist,
+                onTap: onChecklist,
+              ),
+              TabItem(
+                icon: LucideIcons.settings,
+                label: '설정',
+                selected: currentStep == AppStep.settings,
+                onTap: onSettings,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4960,10 +5447,7 @@ class EmptyPanel extends StatelessWidget {
     return CampCard(
       child: Column(
         children: [
-          SvgPicture.asset(
-            'assets/illustrations/camp_empty.svg',
-            height: 132,
-          ),
+          SvgPicture.asset('assets/illustrations/camp_empty.svg', height: 132),
           const SizedBox(height: 12),
           Text(text, style: CampText.bodyStrong, textAlign: TextAlign.center),
           const SizedBox(height: 12),
@@ -5077,10 +5561,7 @@ class FavoriteHeartButton extends StatelessWidget {
     return IconButton(
       tooltip: isFavorite ? '저장 해제' : '저장하기',
       onPressed: onPressed,
-      icon: Icon(
-        isFavorite ? Icons.favorite : Icons.favorite_border,
-        size: 20,
-      ),
+      icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border, size: 20),
       style: IconButton.styleFrom(
         fixedSize: const Size(36, 36),
         minimumSize: const Size(36, 36),
@@ -5376,6 +5857,38 @@ class SecureAuthSessionStore implements AuthSessionStore {
   }
 }
 
+/// 액세스 토큰 payload의 `sub`에서 내 유저 ID를 읽는다.
+///
+/// 서버가 유저 ID를 따로 내려주는 API가 없어서 토큰에서 꺼낸다. 서명은 검증하지
+/// 않으므로 화면 표시 용도로만 쓰고, 권한 판단은 서버에 맡긴다.
+int? userIdFromAccessToken(String? accessToken) {
+  if (accessToken == null || accessToken.isEmpty) {
+    return null;
+  }
+  final segments = accessToken.split('.');
+  if (segments.length != 3) {
+    return null;
+  }
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(segments[1]))),
+    );
+    if (payload is! Map<String, dynamic>) {
+      return null;
+    }
+    final sub = payload['sub'];
+    if (sub is int) {
+      return sub;
+    }
+    if (sub is String) {
+      return int.tryParse(sub);
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 class CampOnApi {
   static const String publicHost = 'campon.seohamin.com';
   static const String _host = 'campon.seohamin.com';
@@ -5394,6 +5907,9 @@ class CampOnApi {
   Future<void>? _googleInitializeFuture;
   Future<void>? _refreshFuture;
   VoidCallback? onSessionInvalidated;
+
+  /// 로그인한 유저의 ID. 서버가 따로 알려주지 않아서 액세스 토큰에서 읽는다.
+  int? get currentUserId => userIdFromAccessToken(_accessToken);
 
   Future<bool> restoreSession() async {
     try {
@@ -5786,6 +6302,63 @@ class CampOnApi {
     await _authorizedRequest(
       _buildUri('/api/v1/posts/$postId', const <String, String>{}),
       method: 'DELETE',
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // 차단(Block) API
+  // ──────────────────────────────────────────────
+
+  /// 차단한 유저 목록 조회 GET /api/v1/blocks
+  Future<List<BlockedUser>> getBlockedUsers() async {
+    final body = await _authorizedRequest(
+      _buildUri('/api/v1/blocks', const <String, String>{}),
+    );
+    final decoded = jsonDecode(body);
+    if (decoded is! List) {
+      return <BlockedUser>[];
+    }
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(BlockedUser.fromJson)
+        .toList();
+  }
+
+  /// 유저 차단 POST /api/v1/blocks
+  Future<BlockedUser> blockUser(int blockedUserId) async {
+    final body = await _authorizedRequest(
+      _buildUri('/api/v1/blocks', const <String, String>{}),
+      method: 'POST',
+      body: <String, dynamic>{'blockedUserId': blockedUserId},
+    );
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const CampOnApiException('서버 응답 형식이 올바르지 않습니다.');
+    }
+    return BlockedUser.fromJson(decoded);
+  }
+
+  /// 차단 해제 DELETE /api/v1/blocks/{blockedUserId}
+  Future<void> unblockUser(int blockedUserId) async {
+    await _authorizedRequest(
+      _buildUri('/api/v1/blocks/$blockedUserId', const <String, String>{}),
+      method: 'DELETE',
+    );
+  }
+
+  // ──────────────────────────────────────────────
+  // 신고(Report) API
+  // ──────────────────────────────────────────────
+
+  /// 게시글 신고 POST /api/v1/posts/{postId}/reports
+  Future<void> reportPost({
+    required int postId,
+    required String reason,
+  }) async {
+    await _authorizedRequest(
+      _buildUri('/api/v1/posts/$postId/reports', const <String, String>{}),
+      method: 'POST',
+      body: <String, dynamic>{'reason': reason},
     );
   }
 
@@ -6332,15 +6905,20 @@ class CampPost {
     required this.title,
     required this.content,
     required this.createdAt,
+    this.authorId,
+    this.authorNickname,
   });
 
   factory CampPost.fromJson(Map<String, dynamic> json) {
+    final nickname = _asString(json['authorNickname']);
     return CampPost(
       id: _asInt(json['id']),
       campsiteId: _asInt(json['campsiteId']),
       title: _asString(json['title'], fallback: '제목 없음'),
       content: _asString(json['content']),
       createdAt: DateTime.tryParse(_asString(json['createdAt']))?.toLocal(),
+      authorId: json['authorId'] != null ? _asInt(json['authorId']) : null,
+      authorNickname: nickname.isEmpty ? null : nickname,
     );
   }
 
@@ -6349,6 +6927,11 @@ class CampPost {
   final String title;
   final String content;
   final DateTime? createdAt;
+  /// 게시글 작성자 ID (서버가 내려줄 때만 사용)
+  final int? authorId;
+
+  /// 게시글 작성자 닉네임 (서버가 내려줄 때만 사용)
+  final String? authorNickname;
 
   String get createdAtLabel {
     final date = createdAt;
@@ -6359,6 +6942,42 @@ class CampPost {
     return '${date.year}.${two(date.month)}.${two(date.day)} '
         '${two(date.hour)}:${two(date.minute)}';
   }
+
+  /// 카드 아래에 붙일 작성자·작성일 한 줄. 서버가 안 주는 값은 자연스럽게 빠진다.
+  String get metaLabel => [
+    ?authorNickname,
+    if (createdAtLabel.isNotEmpty) createdAtLabel,
+  ].join(' · ');
+}
+
+/// 차단된 유저 응답 DTO
+class BlockedUser {
+  const BlockedUser({
+    required this.id,
+    required this.blockedUserId,
+    required this.createdAt,
+    this.nickname,
+  });
+
+  factory BlockedUser.fromJson(Map<String, dynamic> json) {
+    final nickname = _asString(json['nickname']);
+    return BlockedUser(
+      id: _asInt(json['id']),
+      blockedUserId: _asInt(json['blockedUserId']),
+      createdAt: DateTime.tryParse(_asString(json['createdAt']))?.toLocal(),
+      nickname: nickname.isEmpty ? null : nickname,
+    );
+  }
+
+  final int id;
+  final int blockedUserId;
+  final DateTime? createdAt;
+
+  /// 차단한 유저 닉네임 (서버가 내려줄 때만 사용)
+  final String? nickname;
+
+  /// 목록에 보여줄 이름. 닉네임이 없으면 유저 번호로 대신한다.
+  String get displayName => nickname ?? '유저 #$blockedUserId';
 }
 
 class DirectionResult {

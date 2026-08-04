@@ -82,30 +82,29 @@ capability도 쓸 수 없다. 이 앱은 소셜 로그인을 제공하므로 Gui
 참고: 이 문서 이전 판에는 Team `SNPYTZYZF4`가 적혀 있었으나 근거가 없어 폐기한다. 실제 프로젝트
 설정값은 `Q5U58YNG6X`이고(`project.pbxproj` 3곳), 이 팀으로 출시한다.
 
-### A-4. 개인정보 처리방침과 이용약관 — 앱 쪽은 준비됨, URL이 없다
+### A-4. 개인정보 처리방침과 이용약관 — 앱 내 열람은 가능, 공개 URL은 필요
 
 로그인 화면에는 "로그인하면 CampOn 이용약관과 개인정보 처리방침에 동의하는 것으로 간주됩니다"라는
 문구가 있는데, 이전에는 **탭할 수 없는 순수 텍스트**였다. 동의를 받는다면서 읽을 수단이 없어
 Guideline 5.1.1 리젝 사유였다.
 
-이제 로그인 화면과 설정 화면 양쪽에 링크(`LegalLinkRow`)를 붙였다. 다만 **URL이 아직 없어서
-링크가 감춰진 상태**다. `LegalConfig`가 `--dart-define` 값을 읽고, 비어 있으면 링크를 그리지
-않는다 (`lib/main.dart`).
+이제 로그인 화면과 설정 화면 양쪽에서 이용약관과 개인정보 처리방침을 열 수 있다. 공개 URL이
+주입되지 않은 빌드는 앱 안의 문서를 열고, `PRIVACY_POLICY_URL` 또는 `TERMS_OF_SERVICE_URL`이
+주입된 릴리스 빌드는 공개 문서를 연다 (`lib/main.dart`의 `LegalLinkRow`).
 
-- [ ] **개인정보 처리방침을 실제 URL에 게시한다.** App Store Connect 제출 시 필수 입력이라 이게
-      없으면 제출 자체가 막힌다. **초안은 `docs/privacy-policy.md`에 있다.** 앱이 실제로 어떤
-      데이터를 어디로 보내는지는 코드를 추적해 채웠고, 코드로 알 수 없는 것(사업자 정보, 보유
-      기간, 서버 로그 정책)은 `{{ }}`와 ★로 표시해 비워 두었다. 채운 뒤 게시한다.
+- [ ] **개인정보 처리방침과 이용약관을 실제 URL에 게시한다.** App Store Connect 제출 시 개인정보
+      처리방침 URL은 필수다. 게시 원문은 `docs/privacy-policy.md`와 `docs/terms-of-service.md`다.
+      공개본과 앱 내 문서의 운영자명·문의 메일·보유 기간을 실제 운영 정책과 일치시킨다.
 - [ ] **Gemini API 등급을 확인한다.** 무료 등급이면 Google이 입력 내용을 품질 개선에 활용할 수
-      있어 처리방침 문구와 App Privacy 답변이 달라진다. `docs/privacy-policy.md` 3절의 ★ 참고.
-- [ ] **이용약관도 게시한다.** 로그인 문구가 언급하고 있으므로 함께 필요하다.
+      있어 처리방침 문구와 App Privacy 답변이 달라질 수 있다. 실제 사용 등급과 Google의 데이터
+      취급 조건을 확인해 공개 문서에 반영한다.
 - [ ] 제출 빌드에 두 값을 넣는다:
       `--dart-define=PRIVACY_POLICY_URL=... --dart-define=TERMS_OF_SERVICE_URL=...`
-      **이 define을 빠뜨리면 링크가 조용히 사라진 채로 빌드된다.** 아카이브 후 설정 화면에서
-      링크가 보이는지 눈으로 확인한다.
+      `--dart-define=LEGAL_CONTACT_EMAIL=...`도 공개 문서의 문의 메일과 같게 넣는다. 아카이브 후
+      로그인과 설정 화면에서 두 문서를 눈으로 확인한다.
 - [ ] 지원(문의) URL 또는 이메일을 확정한다 — App Store Connect 필수.
 
-확인 방법: `flutter test test/legal_links_test.dart --dart-define=PRIVACY_POLICY_URL=https://example.com/privacy --dart-define=TERMS_OF_SERVICE_URL=https://example.com/terms`
+확인 방법: `flutter test test/legal_documents_test.dart`
 
 ---
 
@@ -120,7 +119,8 @@ Guideline 5.1.1 리젝 사유였다.
       정리한다 (`lib/main.dart:4494`).
 - [x] **Privacy Manifest** — `ios/Runner/PrivacyInfo.xcprivacy` 존재. 추적 없음
       (`NSPrivacyTracking=false`), 필수 사유 API는 UserDefaults(CA92.1)와 FileTimestamp(C617.1)로
-      선언되어 있다. 수집 항목은 이메일·이름·User ID·정밀 위치를 앱 기능 목적·비추적으로 선언한다.
+      선언되어 있다. 수집 항목은 이메일·이름·User ID·정밀 위치·이용자 콘텐츠를 앱 기능 목적·비추적으로
+      선언한다.
 
       **2026-08-01에 정밀 위치를 추가했다.** 그전까지는 이메일·이름·User ID만 선언되어 있었는데,
       앱은 `Geolocator`로 받은 기기 좌표(정확도 100m)를 인증된 요청으로
@@ -178,23 +178,32 @@ A 블로커를 모두 해결한 뒤에 진행한다.
 3. [ ] `./scripts/bootstrap.sh`를 실행한다. 이 프로젝트는 iCloud 동기화 폴더 안에 있어
        `tmp_build` 심링크가 없으면 codesign이 실패한다.
 4. [ ] `flutter build ipa --release --dart-define=...` 로 아카이브를 만든다.
-5. [ ] TestFlight에 업로드하고 **실제 기기에서** 로그인 3종(Google/Apple/Kakao)의 성공과 취소를
+5. [ ] AI 프록시의 실제 URL을 `PLAN_PROXY_URL`로 넣고 `/api/plan`, `/api/preview`를 실기기에서
+       확인한다. 현재 기본값 `campon-ai-proxy.azurewebsites.net`은 DNS 해석에 실패하므로, 이 값을
+       그대로 제출하면 AI 기능은 로컬 폴백만 표시한다.
+6. [ ] TestFlight에 업로드하고 **실제 기기에서** 로그인 3종(Google/Apple/Kakao)의 성공과 취소를
        각각 확인한다. 시뮬레이터로는 검증되지 않는다.
-6. [ ] 네트워크 실패, 토큰 만료, 빈 캠핑장 목록, 이미지 로딩 실패 상태를 확인한다.
-7. [ ] 작은 화면(iPhone SE)과 큰 화면에서 텍스트 잘림을 확인한다.
+7. [ ] 네트워크 실패, 토큰 만료, 빈 캠핑장 목록, 이미지 로딩 실패 상태를 확인한다.
+8. [ ] 작은 화면(iPhone SE)과 큰 화면에서 텍스트 잘림을 확인한다.
 
 ## E. App Store Connect에 입력할 것
 
 앱 레코드를 만들면서 채운다.
 
 - [ ] 앱 이름, 부제, 프로모션 텍스트, 설명, 키워드
-- [ ] 개인정보 처리방침 URL (필수) — A-4에서 확정한 값
+- [ ] 개인정보 처리방침 URL (필수) — `docs/privacy-policy.md`를 공개 HTTPS 주소에 게시한 실제 URL
 - [ ] 지원 URL (필수)
 - [ ] 스크린샷. `screenshots/` 폴더에 6장이 있으나 **App Store 규격 확인이 필요하다**
       (6.9인치와 6.5인치 필수). 현재 파일은 개발 중 캡처본이다.
-- [ ] App Privacy 설문. `PrivacyInfo.xcprivacy`의 선언(이메일·이름·User ID, 비추적)과 일치시키되,
+- [ ] App Privacy 설문. `PrivacyInfo.xcprivacy`의 선언(이메일·이름·User ID·정확한 위치·이용자 콘텐츠,
+      비추적)과 일치시키되,
       **백엔드가 실제로 저장하는 데이터 기준으로 다시 확인한다.** 앱 매니페스트와 서버 실제 동작이
       다르면 그쪽이 문제가 된다.
+- [ ] 릴리스 빌드에 `PRIVACY_POLICY_URL`, `TERMS_OF_SERVICE_URL`, `LEGAL_CONTACT_EMAIL`을 설정한다.
+      URL이 없을 때에도 앱 내 문서는 열리지만, App Store Connect에는 공개 HTTPS 개인정보 처리방침 URL이
+      필요하다.
+- [ ] 커뮤니티를 켠 채로 출시한다면 부적절한 콘텐츠 필터링, 신고, 사용자 차단, 운영자 연락 수단을
+      실제로 제공한다. 현재 앱에는 본인 글 삭제만 있고 신고·차단·사전 필터가 없다.
 - [ ] 연령 등급 설문
 - [ ] 심사 메모: 심사자용 테스트 계정을 제공한다. 소셜 로그인만 있는 앱은 심사자가 로그인할 수단이
       없어 Guideline 2.1로 리젝되는 경우가 많다. **이 항목을 빠뜨리지 않는다.**
