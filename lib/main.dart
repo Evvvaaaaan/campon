@@ -65,7 +65,15 @@ Future<void> _initializeNativeSdks() async {
     debugPrint('[KakaoMap] KAKAO_JAVASCRIPT_KEY가 비어 있어 지도 초기화를 건너뜁니다.');
     return;
   }
-  AuthRepository.initialize(appKey: AuthConfig.kakaoJavascriptKey);
+  // baseUrl 없이 로드하면 WebView 페이지의 origin이 비어(opaque) 카카오맵 JS SDK 요청의
+  // Referer가 문자열 "null"로 찍힌다. 카카오는 이를 등록되지 않은 도메인으로 보고
+  // 401(domain mismatched)을 돌려줘 지도가 빈 화면으로 뜬다. baseUrl을 실제 문자열로
+  // 지정해야 하고, 카카오 디벨로퍼스 콘솔의 해당 JS 키 "Web 플랫폼"에도 같은 도메인을
+  // 등록해야 한다.
+  AuthRepository.initialize(
+    appKey: AuthConfig.kakaoJavascriptKey,
+    baseUrl: AuthConfig.kakaoMapBaseUrl,
+  );
 }
 
 class AuthConfig {
@@ -76,6 +84,13 @@ class AuthConfig {
   static const kakaoJavascriptKey = String.fromEnvironment(
     'KAKAO_JAVASCRIPT_KEY',
     defaultValue: 'da305f3d0050858669209af771943ff8',
+  );
+  /// 카카오맵 WebView가 등록된 도메인처럼 보이도록 쓰는 고정 origin.
+  /// 카카오 디벨로퍼스 콘솔 > 해당 JS 키 > 플랫폼 > Web에 이 값과 정확히 같은 도메인을
+  /// 등록해야 지도가 뜬다 (미등록 시 401 domain mismatched로 빈 화면).
+  static const kakaoMapBaseUrl = String.fromEnvironment(
+    'KAKAO_MAP_BASE_URL',
+    defaultValue: 'http://localhost',
   );
   static const googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
   static const googleServerClientId = String.fromEnvironment(
