@@ -2,8 +2,9 @@ import 'package:campon/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('home CTA routes into the planner with prefilled context',
-      (tester) async {
+  testWidgets('home CTA routes into the planner with prefilled context', (
+    tester,
+  ) async {
     final store = _MemoryAuthSessionStore(
       AuthSession(
         accessToken: 'access-token',
@@ -18,10 +19,10 @@ void main() {
     await tester.pumpWidget(CampOnApp(api: api));
     await tester.pumpAndSettle();
 
-    // Lands on home with the AI planner hero CTA.
-    expect(find.text('AI로 캠핑 플랜 짜기'), findsOneWidget);
+    // Lands on home with the new planner CTA.
+    expect(find.text('캠핑 계획 만들기'), findsOneWidget);
 
-    await tester.tap(find.text('AI로 캠핑 플랜 짜기'));
+    await tester.tap(find.text('캠핑 계획 만들기'));
     await tester.pumpAndSettle();
 
     // Planner input screen shows with prefilled context chips.

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:campon/campsites/favorites_store.dart';
+import 'package:campon/location/location_service.dart';
 import 'package:campon/main.dart';
 import 'package:campon/theme.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,7 @@ void main() {
         'resveUrl': 'https://example.com/reserve',
         'facility': ['SHOWER', 'WIFI'],
         'thumbnailUrl': 'https://example.com/a.jpg',
+        'imageUrls': ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
         'trailerAccompanyAt': true,
         'caravanAccompanyAt': false,
         'toiletCount': 3,
@@ -48,6 +50,10 @@ void main() {
       expect(restored.reservationUrl, 'https://example.com/reserve');
       expect(restored.facility, ['SHOWER', 'WIFI']);
       expect(restored.thumbnailUrl, 'https://example.com/a.jpg');
+      expect(restored.imageUrls, [
+        'https://example.com/a.jpg',
+        'https://example.com/b.jpg',
+      ]);
       expect(restored.trailerAccompanyAt, isTrue);
       expect(restored.caravanAccompanyAt, isFalse);
       expect(restored.toiletCount, 3);
@@ -132,7 +138,11 @@ void main() {
   testWidgets('상세에서 하트를 누르면 로컬 저장소에 기록된다', (tester) async {
     final store = InMemoryFavoritesStore();
     await tester.pumpWidget(
-      CampOnApp(api: _StubApi(), favoritesStore: store),
+      CampOnApp(
+        api: _StubApi(),
+        favoritesStore: store,
+        location: const _FakeLocationProvider(),
+      ),
     );
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
@@ -152,7 +162,11 @@ void main() {
   testWidgets('다시 누르면 저장소에서도 빠진다', (tester) async {
     final store = InMemoryFavoritesStore([_site(1, '테스트 캠핑장')]);
     await tester.pumpWidget(
-      CampOnApp(api: _StubApi(), favoritesStore: store),
+      CampOnApp(
+        api: _StubApi(),
+        favoritesStore: store,
+        location: const _FakeLocationProvider(),
+      ),
     );
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
@@ -168,7 +182,11 @@ void main() {
   testWidgets('앱을 다시 켜면 저장된 즐겨찾기가 복원된다', (tester) async {
     final store = InMemoryFavoritesStore([_site(1, '테스트 캠핑장')]);
     await tester.pumpWidget(
-      CampOnApp(api: _StubApi(), favoritesStore: store),
+      CampOnApp(
+        api: _StubApi(),
+        favoritesStore: store,
+        location: const _FakeLocationProvider(),
+      ),
     );
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
@@ -192,6 +210,17 @@ Campsite _site(int id, String name) => Campsite.fromJson({
   'facility': <String>[],
   'equipmentRental': <String>[],
 });
+
+class _FakeLocationProvider implements LocationProvider {
+  const _FakeLocationProvider();
+
+  @override
+  Future<LocationPoint> current() async =>
+      const LocationPoint(lat: 37.8, lon: 128.1);
+
+  @override
+  Future<void> openSettings(LocationBlockReason reason) async {}
+}
 
 Future<void> _skipTutorial(WidgetTester tester) async {
   await tester.tap(find.text('건너뛰기'));
@@ -227,8 +256,10 @@ class _StubApi extends CampOnApi {
   }) async => _sites;
 
   @override
-  Future<List<Campsite>> fetchAllNearby({required CampRegion region}) async =>
-      _sites;
+  Future<List<Campsite>> fetchAllNearbyAt({
+    required double lat,
+    required double lon,
+  }) async => _sites;
 }
 
 class _MemoryStore implements AuthSessionStore {

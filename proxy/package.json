@@ -6,8 +6,11 @@
   "main": "dist/*.js",
   "scripts": {
     "test": "node --test",
-    "build": "esbuild api/plan.ts api/preview.ts --bundle --platform=node --format=esm --outdir=dist --external:@azure/functions",
-    "start": "npm run build && func start"
+    "build": "esbuild api/plan.ts api/preview.ts api/campsite-image.ts api/campsite-reservation.ts api/warmup.ts --bundle --platform=node --format=esm --outdir=dist --external:@azure/functions",
+    "build:oracle": "esbuild api/server.ts --bundle --platform=node --format=esm --outdir=dist",
+    "start": "npm run build && func start",
+    "start:oracle": "node dist/server.js",
+    "verify:naver": "node --env-file-if-exists=.env scripts/verify_naver_image.mjs"
   },
   "dependencies": {
     "@azure/functions": "^4.5.0"

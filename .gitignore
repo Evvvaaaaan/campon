@@ -33,6 +33,12 @@ migrate_working_dir/
 /build/
 /coverage/
 /tmp_build/
+/tmp_build
+/dart_defines.json
+/screenshots/kakao_console.png
+**/.gradle/
+/third_party/**/android/build/
+**/.env
 
 # Symbolication related
 app.*.symbols

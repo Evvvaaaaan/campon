@@ -1,3 +1,4 @@
+import 'package:campon/location/location_service.dart';
 import 'package:campon/main.dart';
 import 'package:campon/theme.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,7 +7,9 @@ void main() {
   tearDown(() => CampColors.apply(CampPalette.light));
 
   testWidgets('첫 진입에 코치마크가 홈 단계부터 뜬다', (tester) async {
-    await tester.pumpWidget(CampOnApp(api: _StubApi()));
+    await tester.pumpWidget(
+      CampOnApp(api: _StubApi(), location: const _FakeLocationProvider()),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('환영해요, 캠퍼님 👋'), findsOneWidget);
@@ -16,7 +19,9 @@ void main() {
   });
 
   testWidgets('다음을 누르면 단계와 탭이 함께 넘어간다', (tester) async {
-    await tester.pumpWidget(CampOnApp(api: _StubApi()));
+    await tester.pumpWidget(
+      CampOnApp(api: _StubApi(), location: const _FakeLocationProvider()),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(_inOverlay('다음'));
@@ -29,7 +34,9 @@ void main() {
   });
 
   testWidgets('마지막 단계의 시작하기를 누르면 코치마크가 사라진다', (tester) async {
-    await tester.pumpWidget(CampOnApp(api: _StubApi()));
+    await tester.pumpWidget(
+      CampOnApp(api: _StubApi(), location: const _FakeLocationProvider()),
+    );
     await tester.pumpAndSettle();
 
     for (var i = 0; i < 4; i++) {
@@ -47,7 +54,9 @@ void main() {
   });
 
   testWidgets('건너뛰기를 누르면 즉시 사라진다', (tester) async {
-    await tester.pumpWidget(CampOnApp(api: _StubApi()));
+    await tester.pumpWidget(
+      CampOnApp(api: _StubApi(), location: const _FakeLocationProvider()),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('건너뛰기'));
@@ -63,6 +72,17 @@ Finder _inOverlay(String text) => find.descendant(
   of: find.byType(TutorialOverlay),
   matching: find.text(text),
 );
+
+class _FakeLocationProvider implements LocationProvider {
+  const _FakeLocationProvider();
+
+  @override
+  Future<LocationPoint> current() async =>
+      const LocationPoint(lat: 37.8, lon: 128.1);
+
+  @override
+  Future<void> openSettings(LocationBlockReason reason) async {}
+}
 
 class _StubApi extends CampOnApi {
   _StubApi() : super(sessionStore: _MemoryStore());

@@ -42,6 +42,8 @@ Future<void> _pumpCard(
   WidgetTester tester, {
   required LocationProvider location,
   required DirectionsFetcher fetchDirections,
+  bool hasCar = true,
+  UrlOpener? openUrl,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -50,6 +52,8 @@ Future<void> _pumpCard(
           fetchDirections: fetchDirections,
           location: location,
           site: _site(),
+          hasCar: hasCar,
+          openUrl: openUrl,
         ),
       ),
     ),
@@ -150,5 +154,82 @@ void main() {
     await tester.pump();
 
     expect(location.openedFor, LocationBlockReason.serviceDisabled);
+  });
+
+  Future<void> loadResult(WidgetTester tester, {required bool hasCar, required UrlOpener openUrl}) async {
+    await _pumpCard(
+      tester,
+      location: _FakeLocationProvider.success(
+        const LocationPoint(lat: 37.5665, lon: 126.9780),
+      ),
+      fetchDirections:
+          ({
+            required double originX,
+            required double originY,
+            required double destX,
+            required double destY,
+          }) async => const DirectionResult(
+            distanceMeters: 132000,
+            durationSeconds: 7200,
+          ),
+      hasCar: hasCar,
+      openUrl: openUrl,
+    );
+    await tester.tap(find.text('경로 확인'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('경로 확인 후 카카오맵으로 이동을 누르면 출발지·도착지 좌표로 길찾기 URL을 연다', (
+    tester,
+  ) async {
+    Uri? openedUri;
+    await loadResult(
+      tester,
+      hasCar: true,
+      openUrl: (uri) async {
+        openedUri = uri;
+        return true;
+      },
+    );
+
+    expect(find.text('카카오맵으로 이동'), findsOneWidget);
+    await tester.tap(find.text('카카오맵으로 이동'));
+    await tester.pump();
+
+    expect(
+      openedUri,
+      Uri.parse(
+        'http://m.map.kakao.com/scheme/route'
+        '?sp=37.5665,126.978'
+        '&ep=37.4,128.5'
+        '&by=car',
+      ),
+    );
+  });
+
+  testWidgets('차량이 없으면 대중교통 경로로 카카오맵을 연다', (tester) async {
+    Uri? openedUri;
+    await loadResult(
+      tester,
+      hasCar: false,
+      openUrl: (uri) async {
+        openedUri = uri;
+        return true;
+      },
+    );
+
+    await tester.tap(find.text('카카오맵으로 이동'));
+    await tester.pump();
+
+    expect(openedUri?.queryParameters['by'], 'publictransit');
+  });
+
+  testWidgets('카카오맵을 열지 못하면 안내 스낵바를 보여준다', (tester) async {
+    await loadResult(tester, hasCar: true, openUrl: (uri) async => false);
+
+    await tester.tap(find.text('카카오맵으로 이동'));
+    await tester.pump();
+
+    expect(find.text('링크를 열지 못했습니다.'), findsOneWidget);
   });
 }

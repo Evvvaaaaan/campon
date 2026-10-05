@@ -18,7 +18,7 @@ test('generatePlan returns a fully shaped plan (fallback path, no GEMINI key)', 
   const out = await generatePlan(req);
   assert.equal(out.source, 'fallback');
   assert.ok(out.plan.summary.oneLiner.length > 0);
-  assert.ok(['good', 'caution', 'risk'].includes(out.plan.weather.grade));
+  assert.ok(['good', 'caution', 'risk', 'unavailable'].includes(out.plan.weather.grade));
   assert.ok(out.plan.campsites.length >= 1);
   assert.ok(out.plan.checklist.length >= 1);
   assert.ok(out.plan.timeline.length >= 3);

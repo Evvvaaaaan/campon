@@ -54,6 +54,22 @@ class NightSky {
   bool get moonlessEnough => moonInterferencePct <= 15;
 }
 
+/// 오늘 밤 카드가 가리키는 실제 장소.
+///
+/// 이름과 좌표가 함께 와야 카드에 뜬 캠핑장 이름과 그 아래 수치가
+/// 같은 지점을 가리킨다.
+class NightDestination {
+  const NightDestination({
+    required this.name,
+    required this.lat,
+    required this.lon,
+  });
+
+  final String name;
+  final double lat;
+  final double lon;
+}
+
 class TonightForecast {
   const TonightForecast({
     required this.best,

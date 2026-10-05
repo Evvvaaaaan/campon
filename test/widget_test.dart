@@ -41,9 +41,7 @@ void main() {
     expect(find.byIcon(Icons.apple), findsOneWidget);
   });
 
-  testWidgets('kakao login button is enabled', (
-    tester,
-  ) async {
+  testWidgets('kakao login button is enabled', (tester) async {
     await tester.pumpWidget(_appWithEmptySession());
     await tester.pumpAndSettle();
 
@@ -83,7 +81,7 @@ void main() {
 
     expect(api.provider, AuthProvider.google);
     expect(store.session?.accessToken, 'issued-access-token');
-    expect(find.text('오늘의 캠핑을\n정리해볼까요?'), findsOneWidget);
+    expect(find.text('어디로\n떠나볼까요?'), findsOneWidget);
   });
 }
 
@@ -147,4 +145,11 @@ class _JwtIssuingApi extends CampOnApi {
       ),
     );
   }
+
+  @override
+  Future<List<Campsite>> fetchNearby({
+    required CampRegion region,
+    required int page,
+    required int size,
+  }) async => const <Campsite>[];
 }

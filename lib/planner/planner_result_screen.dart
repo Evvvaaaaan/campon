@@ -12,6 +12,8 @@ class PlannerResultScreen extends StatelessWidget {
     required this.onSendToChecklist,
     required this.onBack,
     this.onRegenerate,
+    this.openableCampsites = const <String>{},
+    this.onOpenCampsite,
     super.key,
   });
 
@@ -20,12 +22,23 @@ class PlannerResultScreen extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback? onRegenerate;
 
+  /// 상세 화면을 열 수 있는 캠핑장 이름. AI가 후보 목록 밖의 이름을 쓰면
+  /// 그 줄은 눌리지 않는다.
+  final Set<String> openableCampsites;
+  final ValueChanged<String>? onOpenCampsite;
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Column(
         children: [
-          _Header(onBack: onBack, onRegenerate: onRegenerate),
+          _Header(
+            title: plan.source == PlanGenerationSource.ai
+                ? 'AI 캠핑 플랜'
+                : '기본 준비 가이드',
+            onBack: onBack,
+            onRegenerate: onRegenerate,
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
@@ -33,7 +46,11 @@ class PlannerResultScreen extends StatelessWidget {
                 children: [
                   _SummaryCard(summary: plan.summary),
                   _WeatherCard(weather: plan.weather),
-                  _CampsitesCard(campsites: plan.campsites),
+                  _CampsitesCard(
+                    campsites: plan.campsites,
+                    openable: openableCampsites,
+                    onOpen: onOpenCampsite,
+                  ),
                   _ChecklistCard(checklist: plan.checklist),
                   _TimelineCard(timeline: plan.timeline),
                 ],
@@ -41,8 +58,9 @@ class PlannerResultScreen extends StatelessWidget {
             ),
           ),
           _BottomBar(
-            onSend: () =>
-                onSendToChecklist(plan.checklist.expand((c) => c.items).toList()),
+            onSend: () => onSendToChecklist(
+              plan.checklist.expand((c) => c.items).toList(),
+            ),
           ),
         ],
       ),
@@ -51,7 +69,8 @@ class PlannerResultScreen extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.onBack, this.onRegenerate});
+  const _Header({required this.title, required this.onBack, this.onRegenerate});
+  final String title;
   final VoidCallback onBack;
   final VoidCallback? onRegenerate;
 
@@ -61,13 +80,20 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 8, 16, 8),
       child: Row(
         children: [
-          _circleButton(icon: LucideIcons.chevronLeft, onTap: onBack, tooltip: '뒤로'),
+          _circleButton(
+            icon: LucideIcons.chevronLeft,
+            onTap: onBack,
+            tooltip: '뒤로',
+          ),
           const SizedBox(width: 12),
-          Text('AI 캠핑 플랜', style: CampText.tagline),
+          Text(title, style: CampText.tagline),
           const Spacer(),
           if (onRegenerate != null)
             _circleButton(
-                icon: LucideIcons.refreshCw, onTap: onRegenerate!, tooltip: '다시 만들기'),
+              icon: LucideIcons.refreshCw,
+              onTap: onRegenerate!,
+              tooltip: '다시 만들기',
+            ),
         ],
       ),
     );
@@ -112,7 +138,11 @@ class _Card extends StatelessWidget {
         border: Border.all(color: CampColors.hairline),
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
-          BoxShadow(color: CampColors.shadow, blurRadius: 18, offset: Offset(0, 6)),
+          BoxShadow(
+            color: CampColors.shadow,
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: child,
@@ -165,20 +195,36 @@ class _SummaryCard extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(LucideIcons.sparkles, size: 14, color: CampColors.onPrimary),
+                Icon(
+                  LucideIcons.sparkles,
+                  size: 14,
+                  color: CampColors.onPrimary,
+                ),
                 const SizedBox(width: 6),
-                Text(summary.mood,
-                    style: CampText.captionStrong.copyWith(color: CampColors.onPrimary)),
+                Text(
+                  summary.mood,
+                  style: CampText.captionStrong.copyWith(
+                    color: CampColors.onPrimary,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 14),
-          Text(summary.title,
-              style: CampText.display.copyWith(color: CampColors.onPrimary, fontSize: 26)),
+          Text(
+            summary.title,
+            style: CampText.display.copyWith(
+              color: CampColors.onPrimary,
+              fontSize: 26,
+            ),
+          ),
           const SizedBox(height: 10),
-          Text(summary.oneLiner,
-              style: CampText.body.copyWith(
-                  color: CampColors.onPrimary.withValues(alpha: 0.86))),
+          Text(
+            summary.oneLiner,
+            style: CampText.body.copyWith(
+              color: CampColors.onPrimary.withValues(alpha: 0.86),
+            ),
+          ),
         ],
       ),
     );
@@ -186,22 +232,25 @@ class _SummaryCard extends StatelessWidget {
 }
 
 Color _gradeColor(WeatherGrade g) => switch (g) {
-      WeatherGrade.good => CampColors.forest,
-      WeatherGrade.caution => CampColors.primary,
-      WeatherGrade.risk => const Color(0xFFB23A2E),
-    };
+  WeatherGrade.good => CampColors.forest,
+  WeatherGrade.caution => CampColors.primary,
+  WeatherGrade.risk => const Color(0xFFB23A2E),
+  WeatherGrade.unavailable => CampColors.inkMuted80,
+};
 
 String _gradeLabel(WeatherGrade g) => switch (g) {
-      WeatherGrade.good => '캠핑 좋음',
-      WeatherGrade.caution => '주의',
-      WeatherGrade.risk => '위험',
-    };
+  WeatherGrade.good => '캠핑 좋음',
+  WeatherGrade.caution => '주의',
+  WeatherGrade.risk => '위험',
+  WeatherGrade.unavailable => '예보 없음',
+};
 
 IconData _gradeIcon(WeatherGrade g) => switch (g) {
-      WeatherGrade.good => LucideIcons.sun,
-      WeatherGrade.caution => LucideIcons.cloudSun,
-      WeatherGrade.risk => LucideIcons.cloudLightning,
-    };
+  WeatherGrade.good => LucideIcons.sun,
+  WeatherGrade.caution => LucideIcons.cloudSun,
+  WeatherGrade.risk => LucideIcons.cloudLightning,
+  WeatherGrade.unavailable => LucideIcons.cloudOff,
+};
 
 class _WeatherCard extends StatelessWidget {
   const _WeatherCard({required this.weather});
@@ -219,33 +268,57 @@ class _WeatherCard extends StatelessWidget {
               _CardLabel(icon: LucideIcons.thermometer, text: '캠핑 날씨'),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(_gradeIcon(weather.grade), size: 14, color: color),
-                    const SizedBox(width: 6),
-                    Text(_gradeLabel(weather.grade),
-                        style: CampText.captionStrong.copyWith(color: color)),
-                  ],
-                ),
-              )
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(_gradeIcon(weather.grade), size: 14, color: color),
+                        const SizedBox(width: 6),
+                        Text(
+                          _gradeLabel(weather.grade),
+                          style: CampText.captionStrong.copyWith(color: color),
+                        ),
+                      ],
+                    ),
+                  )
                   .animate()
-                  .scaleXY(begin: 0.8, end: 1, duration: 320.ms, curve: Curves.easeOutBack)
+                  .scaleXY(
+                    begin: 0.8,
+                    end: 1,
+                    duration: 320.ms,
+                    curve: Curves.easeOutBack,
+                  )
                   .fadeIn(),
             ],
           ),
           const SizedBox(height: 16),
           Row(
             children: [
-              _metric('야간최저', '${weather.nightLowC}°'),
-              _metric('강수확률', '${weather.precipPct}%'),
-              _metric('바람', '${weather.windMs}㎧'),
-              _metric('일교차', '${weather.diurnalRangeC}°'),
+              _metric(
+                '야간최저',
+                weather.nightLowC == null ? '—' : '${weather.nightLowC}°',
+              ),
+              _metric(
+                '강수확률',
+                weather.precipPct == null ? '—' : '${weather.precipPct}%',
+              ),
+              _metric(
+                '바람',
+                weather.windMs == null ? '—' : '${weather.windMs}㎧',
+              ),
+              _metric(
+                '일교차',
+                weather.diurnalRangeC == null
+                    ? '—'
+                    : '${weather.diurnalRangeC}°',
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -275,7 +348,10 @@ class _WeatherCard extends StatelessWidget {
         children: [
           Text(value, style: CampText.tagline),
           const SizedBox(height: 4),
-          Text(label, style: CampText.finePrint.copyWith(color: CampColors.inkMuted80)),
+          Text(
+            label,
+            style: CampText.finePrint.copyWith(color: CampColors.inkMuted80),
+          ),
         ],
       ),
     );
@@ -283,11 +359,19 @@ class _WeatherCard extends StatelessWidget {
 }
 
 class _CampsitesCard extends StatelessWidget {
-  const _CampsitesCard({required this.campsites});
+  const _CampsitesCard({
+    required this.campsites,
+    required this.openable,
+    required this.onOpen,
+  });
+
   final List<PlanCampsite> campsites;
+  final Set<String> openable;
+  final ValueChanged<String>? onOpen;
 
   @override
   Widget build(BuildContext context) {
+    final open = onOpen;
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -296,37 +380,79 @@ class _CampsitesCard extends StatelessWidget {
           const SizedBox(height: 14),
           for (var i = 0; i < campsites.length; i++) ...[
             if (i != 0) Divider(height: 24, color: CampColors.hairline),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: CampColors.amberTint,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text('${i + 1}',
-                      style: CampText.captionStrong.copyWith(color: CampColors.primaryDark)),
+            if (open != null && openable.contains(campsites[i].name))
+              Pressable(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => open(campsites[i].name),
+                child: _CampsiteRow(
+                  rank: i + 1,
+                  campsite: campsites[i],
+                  openable: true,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(campsites[i].name, style: CampText.bodyStrong),
-                      const SizedBox(height: 4),
-                      Text(campsites[i].reason,
-                          style: CampText.caption.copyWith(color: CampColors.inkMuted80)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              )
+            else
+              _CampsiteRow(rank: i + 1, campsite: campsites[i]),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _CampsiteRow extends StatelessWidget {
+  const _CampsiteRow({
+    required this.rank,
+    required this.campsite,
+    this.openable = false,
+  });
+
+  final int rank;
+  final PlanCampsite campsite;
+  final bool openable;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: CampColors.amberTint,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$rank',
+            style: CampText.captionStrong.copyWith(
+              color: CampColors.primaryDark,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(campsite.name, style: CampText.bodyStrong),
+              const SizedBox(height: 4),
+              Text(
+                campsite.reason,
+                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              ),
+            ],
+          ),
+        ),
+        if (openable) ...[
+          const SizedBox(width: 8),
+          Icon(
+            LucideIcons.chevronRight,
+            size: 18,
+            color: CampColors.inkMuted48,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -353,7 +479,10 @@ class _ChecklistCard extends StatelessWidget {
               children: [
                 for (final item in checklist[i].items)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
                     decoration: BoxDecoration(
                       color: CampColors.greenTint,
                       borderRadius: BorderRadius.circular(999),
@@ -388,8 +517,12 @@ class _TimelineCard extends StatelessWidget {
                 children: [
                   SizedBox(
                     width: 48,
-                    child: Text(timeline[i].time,
-                        style: CampText.captionStrong.copyWith(color: CampColors.primaryDark)),
+                    child: Text(
+                      timeline[i].time,
+                      style: CampText.captionStrong.copyWith(
+                        color: CampColors.primaryDark,
+                      ),
+                    ),
                   ),
                   Column(
                     children: [
@@ -399,24 +532,38 @@ class _TimelineCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: CampColors.primary,
                           shape: BoxShape.circle,
-                          border: Border.all(color: CampColors.surface, width: 2),
+                          border: Border.all(
+                            color: CampColors.surface,
+                            width: 2,
+                          ),
                         ),
                       ),
                       if (i != timeline.length - 1)
-                        Expanded(child: Container(width: 2, color: CampColors.hairline)),
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            color: CampColors.hairline,
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Padding(
-                      padding: EdgeInsets.only(bottom: i == timeline.length - 1 ? 0 : 18),
+                      padding: EdgeInsets.only(
+                        bottom: i == timeline.length - 1 ? 0 : 18,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(timeline[i].title, style: CampText.bodyStrong),
                           const SizedBox(height: 2),
-                          Text(timeline[i].detail,
-                              style: CampText.caption.copyWith(color: CampColors.inkMuted80)),
+                          Text(
+                            timeline[i].detail,
+                            style: CampText.caption.copyWith(
+                              color: CampColors.inkMuted80,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -456,10 +603,16 @@ class _BottomBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(LucideIcons.listChecks, size: 18, color: CampColors.onPrimary),
+                Icon(
+                  LucideIcons.listChecks,
+                  size: 18,
+                  color: CampColors.onPrimary,
+                ),
                 const SizedBox(width: 8),
-                Text('체크리스트로 보내기',
-                    style: CampText.button.copyWith(color: CampColors.onPrimary)),
+                Text(
+                  '체크리스트로 보내기',
+                  style: CampText.button.copyWith(color: CampColors.onPrimary),
+                ),
               ],
             ),
           ),

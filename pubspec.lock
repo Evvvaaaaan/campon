@@ -122,7 +122,7 @@ packages:
     source: hosted
     version: "5.0.3"
   fake_async:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: fake_async
       sha256: "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"
@@ -474,10 +474,9 @@ packages:
   kakao_map_plugin:
     dependency: "direct main"
     description:
-      name: kakao_map_plugin
-      sha256: "26a77a1a826ec4003ff88f57aaf80e63690f7b5ca1e05c25c986dd54ccc72e0f"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/kakao_map_plugin"
+      relative: true
+    source: path
     version: "0.4.0"
   leak_tracker:
     dependency: transitive

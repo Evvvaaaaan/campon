@@ -39,13 +39,16 @@ void main() {
     expect(find.textContaining('캠핑장 1'), findsNothing);
   });
 
-  testWidgets('CampsiteCard는 기본적으로 거리를 보여준다', (tester) async {
+  testWidgets('CampsiteCard는 거리를 배지 한 곳에만, 우편번호 없이 보여준다', (
+    tester,
+  ) async {
     final site = Campsite.fromJson(<String, dynamic>{
       'campsiteId': 1,
       'name': '캠핑장 1',
       'lat': 37.4,
       'lon': 128.5,
       'distance': 4000,
+      'zipcode': '24004',
     });
 
     await tester.pumpWidget(
@@ -57,8 +60,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 배지와 캡션 줄 모두에 거리가 나오므로(우편번호가 없는 픽스처라 캡션도
-    // 거리만 표시), 최소 한 곳에는 있는지만 확인한다.
-    expect(find.text('4.0km'), findsWidgets);
+    expect(find.text('4.0km'), findsOneWidget);
+    expect(find.textContaining('우편번호'), findsNothing);
   });
 }

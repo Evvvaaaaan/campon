@@ -28,7 +28,7 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('현재 위치'), findsWidgets);
-    expect(find.textContaining('Google Gemini API'), findsOneWidget);
+    expect(find.textContaining('위치정보'), findsWidgets);
+    expect(find.textContaining('Gemini API'), findsWidgets);
   });
 }

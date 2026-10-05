@@ -33,16 +33,18 @@ export function buildFallbackPlan(req: PlanRequest, weather: WeatherSummary): Pl
       ? names.map((s) => ({ name: s.name, reason: `${c.region} 지역, 접근성과 시설이 무난해요.` }))
       : [{ name: `${c.region} 인근 캠핑장`, reason: '지역 조건에 맞춘 추천입니다.' }],
     checklist: [
-      { category: '텐트·취침', items: ['텐트', '그라운드시트', weather.nightLowC <= 5 ? '동계 침낭' : '침낭', '매트'] },
+      { category: '텐트·취침', items: ['텐트', '그라운드시트', weather.nightLowC != null && weather.nightLowC <= 5 ? '동계 침낭' : '침낭', '매트'] },
       { category: '취사', items: ['버너', '코펠', '식수', '아이스박스'] },
-      { category: '의류', items: [weather.diurnalRangeC >= 12 ? '보온 겉옷' : '여벌옷', '양말', '모자'] },
-      { category: '안전', items: ['구급킷', '헤드랜턴', '보조배터리', weather.precipPct >= 30 ? '우비·타프' : '비상 우비'] },
+      { category: '의류', items: [weather.diurnalRangeC != null && weather.diurnalRangeC >= 12 ? '보온 겉옷' : '여벌옷', '양말', '모자'] },
+      { category: '안전', items: ['구급킷', '헤드랜턴', '보조배터리', weather.precipPct != null && weather.precipPct >= 30 ? '우비·타프' : '비상 우비'] },
     ],
     timeline: [
       { time: '14:00', title: '도착·설치', detail: '입실 후 텐트와 타프를 설치해요.' },
       { time: '17:00', title: '저녁 준비', detail: '해지기 전 취사와 식사를 마쳐요.' },
       { time: '19:30', title: '캠프파이어', detail: '불멍과 휴식 시간.' },
-      { time: '22:00', title: '취침', detail: `야간 최저 ${weather.nightLowC}도, 보온에 유의해요.` },
+      { time: '22:00', title: '취침', detail: weather.nightLowC == null
+        ? '출발 전에 최신 야간 기온을 확인하세요.'
+        : `야간 최저 ${weather.nightLowC}도, 보온에 유의해요.` },
       { time: '10:00', title: '철수', detail: '장비를 말리고 정리 후 퇴실해요.' },
     ],
   };
@@ -83,7 +85,9 @@ export function buildPrompt(req: PlanRequest, weather: WeatherSummary): string {
     `요청: ${req.query}`,
     `날짜:${c.date} 인원:${c.people} 차량:${c.hasCar ? '있음' : '없음'} 숙련도:${c.experience} 지역:${c.region}`,
     `선호:${c.preferences.join(',') || '없음'} 보유장비:${c.equipment.join(',') || '없음'}`,
-    `날씨: 등급=${weather.grade} 야간최저=${weather.nightLowC}도 강수확률=${weather.precipPct}% 풍속=${weather.windMs}m/s 일교차=${weather.diurnalRangeC}도`,
+    weather.grade === 'unavailable'
+      ? '날씨: 확인 불가. 수치나 날씨 상태를 추측하지 말 것.'
+      : `날씨: 등급=${weather.grade} 야간최저=${weather.nightLowC}도 강수확률=${weather.precipPct}% 풍속=${weather.windMs}m/s 일교차=${weather.diurnalRangeC}도`,
     '후보 캠핑장(이 목록에서만 골라 이름을 그대로 쓸 것):',
     cand || '- (후보 없음: 지역 기반 일반 추천)',
     '규칙: campsites는 후보 중 최대 3곳, 각 reason은 요청/날씨/숙련도에 맞춰 1문장.',

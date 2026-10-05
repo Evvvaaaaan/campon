@@ -12,6 +12,7 @@ class PlannerInputScreen extends StatefulWidget {
     required this.prefill,
     required this.onGenerated,
     required this.onBack,
+    this.onEditConditions,
     this.service,
     super.key,
   });
@@ -19,6 +20,10 @@ class PlannerInputScreen extends StatefulWidget {
   final PlanInput prefill;
   final void Function(CampPlan plan) onGenerated;
   final VoidCallback onBack;
+
+  /// 지역·날짜·인원 같은 조건을 고칠 수 있게 한다. 조건은 셸이 들고 있으므로
+  /// 고치는 화면도 셸이 띄우고, 여기서는 새 [prefill]로 다시 그려질 뿐이다.
+  final VoidCallback? onEditConditions;
   final PlanService? service;
 
   @override
@@ -100,7 +105,10 @@ class _PlannerInputScreenState extends State<PlannerInputScreen> {
                     child: revealColumn(
                       children: [
                         _IntroCard(),
-                        _ContextChips(input: p),
+                        _ContextChips(
+                          input: p,
+                          onEdit: widget.onEditConditions,
+                        ),
                         _QueryField(controller: _controller, hint: _defaultQuery()),
                       ],
                     ),
@@ -179,20 +187,42 @@ class _IntroCard extends StatelessWidget {
 }
 
 class _ContextChips extends StatelessWidget {
-  const _ContextChips({required this.input});
+  const _ContextChips({required this.input, this.onEdit});
   final PlanInput input;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    final edit = onEdit;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _chip(LucideIcons.mapPin, input.region),
-        _chip(LucideIcons.calendar, input.date),
-        _chip(LucideIcons.users, '${input.people}명'),
-        _chip(LucideIcons.car, input.hasCar ? '차량 있음' : '차량 없음'),
-        _chip(LucideIcons.sparkles, input.experience),
+        if (edit != null) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '이 조건으로 플랜을 만들어요',
+                  style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _EditButton(onTap: edit),
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _chip(LucideIcons.mapPin, input.region),
+            _chip(LucideIcons.calendar, input.date),
+            _chip(LucideIcons.users, '${input.people}명'),
+            _chip(LucideIcons.car, input.hasCar ? '차량 있음' : '차량 없음'),
+            _chip(LucideIcons.sparkles, input.experience),
+          ],
+        ),
       ],
     );
   }
@@ -212,6 +242,39 @@ class _ContextChips extends StatelessWidget {
           const SizedBox(width: 6),
           Text(label, style: CampText.caption),
         ],
+      ),
+    );
+  }
+}
+
+class _EditButton extends StatelessWidget {
+  const _EditButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        decoration: BoxDecoration(
+          color: CampColors.surface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: CampColors.primary),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.pencil, size: 13, color: CampColors.primaryDark),
+            const SizedBox(width: 6),
+            Text(
+              '조건 수정',
+              style: CampText.captionStrong.copyWith(
+                color: CampColors.primaryDark,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -247,8 +310,42 @@ class _QueryField extends StatelessWidget {
   }
 }
 
-class _GeneratingView extends StatelessWidget {
+/// 플랜을 기다리는 동안 보여주는 화면.
+///
+/// 서버는 진행률을 알려주지 않으므로, 예상 소요 시간에 맞춰 단계 문구와 진행 바를
+/// 앞으로 밀어 두고 마지막 단계에서 속도를 늦춰 응답을 기다린다.
+class _GeneratingView extends StatefulWidget {
   const _GeneratingView();
+
+  @override
+  State<_GeneratingView> createState() => _GeneratingViewState();
+}
+
+class _GeneratingViewState extends State<_GeneratingView>
+    with SingleTickerProviderStateMixin {
+  static const _steps = <String>[
+    '입력한 조건을 정리하고 있어요',
+    '조건에 맞는 캠핑장을 고르고 있어요',
+    '그날 날씨를 확인하고 있어요',
+    '준비물과 타임라인을 짜고 있어요',
+  ];
+
+  /// 프록시 연결 타임아웃이 30초라 그보다 짧게 잡는다.
+  static const _expected = Duration(seconds: 20);
+
+  /// 응답이 오기 전에 100%를 보여주지 않으려고 남겨 두는 여유.
+  static const _ceiling = 0.94;
+
+  late final AnimationController _fill = AnimationController(
+    vsync: this,
+    duration: _expected,
+  )..forward();
+
+  @override
+  void dispose() {
+    _fill.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -264,6 +361,15 @@ class _GeneratingView extends StatelessWidget {
               Text('플랜을 만드는 중...', style: CampText.sectionTitle),
             ],
           ),
+          const SizedBox(height: 16),
+          AnimatedBuilder(
+            animation: _fill,
+            builder: (context, _) => _ProgressRow(
+              progress: Curves.easeOut.transform(_fill.value),
+              steps: _steps,
+              ceiling: _ceiling,
+            ),
+          ),
           const SizedBox(height: 20),
           Shimmer(height: 120),
           const SizedBox(height: 16),
@@ -272,6 +378,61 @@ class _GeneratingView extends StatelessWidget {
           Shimmer(height: 140),
         ],
       ),
+    );
+  }
+}
+
+/// 진행 바와 그 아래 단계 문구 한 줄.
+class _ProgressRow extends StatelessWidget {
+  const _ProgressRow({
+    required this.progress,
+    required this.steps,
+    required this.ceiling,
+  });
+
+  final double progress;
+  final List<String> steps;
+  final double ceiling;
+
+  @override
+  Widget build(BuildContext context) {
+    final index = (progress * steps.length).floor();
+    final step = index < steps.length ? index : steps.length - 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: progress * ceiling,
+            minHeight: 8,
+            backgroundColor: CampColors.greenTint,
+            valueColor: AlwaysStoppedAnimation<Color>(CampColors.primary),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                child: Text(
+                  steps[step],
+                  key: ValueKey<int>(step),
+                  style:
+                      CampText.caption.copyWith(color: CampColors.inkMuted80),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${step + 1}/${steps.length}',
+              style: CampText.captionStrong
+                  .copyWith(color: CampColors.primaryDark),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

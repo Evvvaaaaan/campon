@@ -3,7 +3,9 @@
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
     "AzureWebJobsStorage": "",
-    "GEMINI_API_KEY": "your_key_here"
+    "GEMINI_API_KEY": "your_key_here",
+    "NAVER_API_HUB_CLIENT_ID": "your_client_id",
+    "NAVER_API_HUB_CLIENT_SECRET": "your_client_secret"
   },
   "Host": {
     "CORS": "*"

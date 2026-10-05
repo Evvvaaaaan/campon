@@ -18,22 +18,22 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'campsites/campsite_image_service.dart';
 import 'campsites/campsite_map_view.dart';
 import 'campsites/campsite_pagination.dart';
+import 'campsites/campsite_reservation_service.dart';
+import 'campsites/campsite_spatial_preview.dart';
 import 'campsites/favorites_store.dart';
+import 'campsites/nearby_campsite_cache.dart';
 import 'location/location_service.dart';
 import 'motion/motion.dart';
 import 'planner/plan_models.dart';
 import 'planner/planner_input_screen.dart';
 import 'planner/planner_result_screen.dart';
 import 'preview/night_preview_button.dart';
-import 'preview/night_preview_screen.dart';
-import 'preview/preview_models.dart';
 import 'theme.dart';
-import 'tonight/night_models.dart';
 import 'tonight/night_visuals.dart';
-import 'tonight/tonight_card.dart';
-import 'tonight/tonight_service.dart';
+import 'weather/campsite_weather_card.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,11 +65,12 @@ Future<void> _initializeNativeSdks() async {
     debugPrint('[KakaoMap] KAKAO_JAVASCRIPT_KEY가 비어 있어 지도 초기화를 건너뜁니다.');
     return;
   }
-  // baseUrl 없이 로드하면 WebView 페이지의 origin이 비어(opaque) 카카오맵 JS SDK 요청의
-  // Referer가 문자열 "null"로 찍힌다. 카카오는 이를 등록되지 않은 도메인으로 보고
-  // 401(domain mismatched)을 돌려줘 지도가 빈 화면으로 뜬다. baseUrl을 실제 문자열로
-  // 지정해야 하고, 카카오 디벨로퍼스 콘솔의 해당 JS 키 "Web 플랫폼"에도 같은 도메인을
-  // 등록해야 한다.
+  // baseUrl은 반드시 https여야 한다. 카카오맵 sdk.js는 로더 스텁일 뿐이고, 실제 지도 엔진
+  // (t1.daumcdn.net/mapjsapi/.../kakao.js)과 타일을 받을 주소를
+  // `"https:" == location.protocol ? "https:" : "http:"`로 정한다. baseUrl이 http면 엔진을
+  // 평문 HTTP로 받으려 하는데 iOS ATS(및 안드로이드 cleartext 정책)가 이를 막아
+  // kakao.maps.load 콜백이 영영 호출되지 않고 지도가 빈 화면으로 남는다.
+  // 이 도메인은 카카오 디벨로퍼스 콘솔의 해당 JS 키 "플랫폼 > Web"에도 등록되어 있어야 한다.
   AuthRepository.initialize(
     appKey: AuthConfig.kakaoJavascriptKey,
     baseUrl: AuthConfig.kakaoMapBaseUrl,
@@ -85,12 +86,14 @@ class AuthConfig {
     'KAKAO_JAVASCRIPT_KEY',
     defaultValue: 'da305f3d0050858669209af771943ff8',
   );
+
   /// 카카오맵 WebView가 등록된 도메인처럼 보이도록 쓰는 고정 origin.
   /// 카카오 디벨로퍼스 콘솔 > 해당 JS 키 > 플랫폼 > Web에 이 값과 정확히 같은 도메인을
   /// 등록해야 지도가 뜬다 (미등록 시 401 domain mismatched로 빈 화면).
+  /// 반드시 https로 둔다. http면 SDK가 지도 엔진을 평문 HTTP로 받으려다 ATS에 막힌다.
   static const kakaoMapBaseUrl = String.fromEnvironment(
     'KAKAO_MAP_BASE_URL',
-    defaultValue: 'http://localhost',
+    defaultValue: 'https://localhost',
   );
   static const googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
   static const googleServerClientId = String.fromEnvironment(
@@ -123,7 +126,7 @@ class LegalConfig {
   );
   static const contactEmail = String.fromEnvironment(
     'LEGAL_CONTACT_EMAIL',
-    defaultValue: 'vmfhrmfoald36@gmail.com',
+    defaultValue: 'shm040806@gmail.com',
   );
 
   /// 링크를 열지 못하면 조용히 실패하지 않고 호출한 쪽이 안내할 수 있게 false를 준다.
@@ -133,6 +136,29 @@ class LegalConfig {
       return false;
     }
     return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  /// 약관/방침 URL이 설정되어 있으면 외부로 열고, 없으면 앱 내 문서 화면을 보여준다.
+  static Future<void> openDocument(
+    BuildContext context,
+    String url,
+    LegalDocument document,
+  ) async {
+    if (url.isEmpty) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => LegalDocumentScreen(document: document),
+        ),
+      );
+      return;
+    }
+
+    final opened = await open(url);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('링크를 열지 못했습니다.')));
+    }
   }
 }
 
@@ -160,10 +186,11 @@ class CampThemeScope extends InheritedWidget {
 }
 
 class CampOnApp extends StatefulWidget {
-  const CampOnApp({this.api, this.favoritesStore, super.key});
+  const CampOnApp({this.api, this.favoritesStore, this.location, super.key});
 
   final CampOnApi? api;
   final FavoritesStore? favoritesStore;
+  final LocationProvider? location;
 
   @override
   State<CampOnApp> createState() => _CampOnAppState();
@@ -215,6 +242,7 @@ class _CampOnAppState extends State<CampOnApp> {
         home: CampOnShell(
           api: widget.api,
           favoritesStore: widget.favoritesStore,
+          location: widget.location,
         ),
       ),
     );
@@ -239,13 +267,14 @@ enum AppStep {
   plannerResult,
 }
 
-enum DetailEntry { recommendations, browse, favorites }
+enum DetailEntry { home, recommendations, browse, favorites, planner }
 
 class CampOnShell extends StatefulWidget {
-  const CampOnShell({this.api, this.favoritesStore, super.key});
+  const CampOnShell({this.api, this.favoritesStore, this.location, super.key});
 
   final CampOnApi? api;
   final FavoritesStore? favoritesStore;
+  final LocationProvider? location;
 
   @override
   State<CampOnShell> createState() => _CampOnShellState();
@@ -254,6 +283,11 @@ class CampOnShell extends StatefulWidget {
 class _CampOnShellState extends State<CampOnShell> {
   late final CampOnApi _api;
   late final FavoritesStore _favoritesStore;
+  late final LocationProvider _location;
+
+  /// 지도를 움직이며 모은 캠핑장. 리스트↔지도 탭을 오갈 때 지도 위젯이 새로 만들어지므로
+  /// 누적분이 살아남으려면 셸이 들고 있어야 한다.
+  final _nearbyCache = NearbyCampsiteCache();
 
   AppStep _step = AppStep.loading;
   DetailEntry _detailEntry = DetailEntry.recommendations;
@@ -265,6 +299,9 @@ class _CampOnShellState extends State<CampOnShell> {
   bool? _withFamily;
   bool _preTripAlerts = true;
   Campsite? _selectedSite;
+  // 상세를 열어본 캠핑장과 실제 준비를 시작한 캠핑장을 구분한다.
+  // 홈의 일정 카드는 사용자가 준비 시작을 누른 캠핑장만 보여준다.
+  Campsite? _tripSite;
   bool _hasRecommended = false;
 
   final Set<String> _equipment = <String>{};
@@ -283,6 +320,10 @@ class _CampOnShellState extends State<CampOnShell> {
 
   Future<List<Campsite>>? _recommendationsFuture;
   Future<List<Campsite>>? _browseFuture;
+  Future<List<Campsite>>? _weeklyRecommendationsFuture;
+  // 주변 캠핑장 지도의 초기 중심점. 추천 지역이 아니라 실제 현재 위치를 써야 해서
+  // 조회가 끝나는 시점에 함께 채운다.
+  LocationPoint? _browseOrigin;
 
   CampPlan? _plan;
   List<Campsite> _planCandidates = <Campsite>[];
@@ -294,9 +335,16 @@ class _CampOnShellState extends State<CampOnShell> {
     _api = widget.api ?? CampOnApi();
     _favoritesStore =
         widget.favoritesStore ?? const SharedPrefsFavoritesStore();
+    _location = widget.location ?? const GeolocatorLocationProvider();
     _api.onSessionInvalidated = _returnToLogin;
     _restoreSession();
     _restoreFavorites();
+  }
+
+  @override
+  void dispose() {
+    _nearbyCache.dispose();
+    super.dispose();
   }
 
   Future<void> _restoreFavorites() async {
@@ -356,9 +404,30 @@ class _CampOnShellState extends State<CampOnShell> {
 
   void _goBrowse() {
     setState(() {
-      _browseFuture ??= _api.fetchAllNearby(region: _region);
+      // FutureBuilder가 구독하기 전에 실패하면 처리되지 않은 예외로 새어나갈
+      // 수 있어, 별도로 미리 구독해 무시해 둔다. FutureBuilder는 여전히
+      // 자신의 구독으로 성공/실패를 그대로 받는다.
+      _browseFuture ??= _fetchNearbyByCurrentLocation()..ignore();
       _step = AppStep.browse;
     });
+  }
+
+  /// 주변 캠핑장은 추천에 쓰인 지역이 아니라 실제 현재 위치를 기준으로 찾는다.
+  /// 위치를 얻지 못하면(권한 거부 등) 목록 자체를 보여줄 수 없으므로 예외를
+  /// 그대로 던져, 화면이 위치 권한 안내를 보여주게 한다.
+  Future<List<Campsite>> _fetchNearbyByCurrentLocation() async {
+    final origin = await _location.current();
+    _browseOrigin = origin;
+    final sites = await _api.fetchAllNearbyAt(lat: origin.lat, lon: origin.lon);
+    return [
+      for (final site in sites)
+        site.copyWithDistance(
+          distanceBetweenMeters(
+            origin,
+            LocationPoint(lat: site.lat, lon: site.lon),
+          ).round(),
+        ),
+    ];
   }
 
   void _goRecommendTab() {
@@ -387,50 +456,115 @@ class _CampOnShellState extends State<CampOnShell> {
 
   Future<void> _goPlanner() async {
     if (_planCandidates.isEmpty) {
-      try {
-        _planCandidates = await _api.fetchNearby(
-          region: _region,
-          page: 0,
-          size: 10,
-        );
-      } catch (_) {
-        // Planner still works with region-based fallback when candidates fail.
-      }
+      await _loadPlanCandidates();
     }
     if (mounted) {
       setState(() => _step = AppStep.plannerInput);
     }
   }
 
-  /// 오늘 밤 카드에 이름을 붙일 대표 캠핑장.
-  ///
-  /// 이미 받아둔 후보만 쓰고 새로 조회하지 않는다. 홈에서 인증 API를 부르면
-  /// 토큰이 만료됐을 때 카드 문구 하나 때문에 로그인 화면으로 튕길 수 있다.
-  /// 후보가 없으면 지역명으로 표시된다.
-  Future<String?> _loadTonightDestination() async =>
-      _planCandidates.isEmpty ? null : _planCandidates.first.name;
+  /// 플래너가 AI에게 넘길 실제 캠핑장 후보. 지역이 바뀌면 다시 받아야
+  /// 이전 지역의 캠핑장이 플랜에 남지 않는다.
+  Future<void> _loadPlanCandidates() async {
+    try {
+      final candidates = await _api.fetchNearby(
+        region: _region,
+        page: 0,
+        size: 10,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _planCandidates = candidates);
+    } catch (_) {
+      // Planner still works with region-based fallback when candidates fail.
+    }
+  }
 
-  void _openNightPreview(NightSky night, String place, int? myTempC) {
-    openNightPreview(
-      context,
-      input: PreviewInput(
-        place: place,
-        date: night.date,
-        moonIlluminationPct: night.moonIlluminationPct,
-        moonInterferencePct: night.moonInterferencePct,
-        score: night.score,
-        grade: night.grade.name,
-        people: _people,
-        experience: _skillLevel ?? '초보',
-        cloudPct: night.cloudPct,
-        precipPct: night.precipPct,
-        windMs: night.windMs,
-        nightLowC: night.nightLowC,
-        myTempC: myTempC,
-      ),
-      actionLabel: '이 밤에 갈 캠핑장 보기',
-      onAction: _goBrowse,
+  /// 홈의 "이번 주 추천" 데이터 진입점.
+  ///
+  /// 현재는 주변 캠핑장 API가 반환한 순서를 그대로 쓴다. 추후 광고 상품이
+  /// 서버 응답에 추가되면 이 메서드의 데이터 소스만 교체하면 된다.
+  Future<List<Campsite>> _loadWeeklyRecommendations() async {
+    final requestedRegion = _region;
+    final sites = await _api.fetchWeeklyRecommendations(
+      region: requestedRegion,
+      size: 10,
     );
+    if (mounted &&
+        requestedRegion.name == _region.name &&
+        _planCandidates.isEmpty) {
+      setState(() => _planCandidates = sites);
+    }
+    return sites;
+  }
+
+  Future<List<Campsite>> _ensureWeeklyRecommendations() {
+    final cached = _weeklyRecommendationsFuture;
+    if (cached != null) return cached;
+    final future = _loadWeeklyRecommendations();
+    future.ignore();
+    _weeklyRecommendationsFuture = future;
+    return future;
+  }
+
+  void _retryWeeklyRecommendations() {
+    final future = _loadWeeklyRecommendations();
+    future.ignore();
+    setState(() => _weeklyRecommendationsFuture = future);
+  }
+
+  /// 플래너 화면에서 조건을 고친다. 저장을 눌렀을 때만 반영되고,
+  /// 지역이 바뀌면 후보를 비운 뒤 새 지역으로 다시 받는다.
+  Future<void> _editPlanConditions() async {
+    final edited = await showModalBottomSheet<PlanConditions>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: CampColors.canvas,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => PlanConditionSheet(
+        initial: PlanConditions(
+          // 칩에 이미 오늘 날짜가 떠 있으므로 시트도 같은 값에서 시작한다.
+          date: _date ?? DateTime.now(),
+          region: _region,
+          people: _people,
+          hasCar: _hasCar ?? true,
+          skillLevel: _skillLevel ?? CampData.skillLevels.first,
+          equipment: _equipment,
+          preferences: _preferences,
+        ),
+      ),
+    );
+    if (edited == null || !mounted) {
+      return;
+    }
+
+    final regionChanged = edited.region.name != _region.name;
+    setState(() {
+      _date = edited.date;
+      _region = edited.region;
+      _people = edited.people;
+      _hasCar = edited.hasCar;
+      _skillLevel = edited.skillLevel;
+      _equipment
+        ..clear()
+        ..addAll(edited.equipment);
+      _preferences
+        ..clear()
+        ..addAll(edited.preferences);
+      if (regionChanged) {
+        _planCandidates = <Campsite>[];
+        _browseFuture = null;
+        _weeklyRecommendationsFuture = null;
+        // 지역을 옮기면 이전 지역에서 쌓은 마커가 남지 않게 비운다.
+        _nearbyCache.clear();
+      }
+    });
+    if (regionChanged) {
+      await _loadPlanCandidates();
+    }
   }
 
   String _isoDate(DateTime d) =>
@@ -466,9 +600,11 @@ class _CampOnShellState extends State<CampOnShell> {
       switch (_step) {
         case AppStep.details:
           _step = switch (_detailEntry) {
+            DetailEntry.home => AppStep.home,
             DetailEntry.browse => AppStep.browse,
             DetailEntry.favorites => AppStep.favorites,
             DetailEntry.recommendations => AppStep.recommendations,
+            DetailEntry.planner => AppStep.plannerResult,
           };
         case AppStep.community:
           _step = AppStep.details;
@@ -530,6 +666,19 @@ class _CampOnShellState extends State<CampOnShell> {
     });
   }
 
+  /// 플랜에 적힌 이름으로 그 캠핑장의 상세 화면을 연다.
+  ///
+  /// 플랜에는 이름만 담겨 오므로 AI에 넘겼던 후보 목록에서 이름으로 되찾는다.
+  /// 프롬프트가 후보 목록에서만 고르게 하지만, 어긋난 이름이면 아무 일도 없다.
+  void _openPlanCampsite(String name) {
+    for (final site in _planCandidates) {
+      if (site.name == name) {
+        _selectSite(site, DetailEntry.planner);
+        return;
+      }
+    }
+  }
+
   void _selectSite(Campsite site, DetailEntry entry) {
     setState(() {
       _selectedSite = site;
@@ -540,7 +689,10 @@ class _CampOnShellState extends State<CampOnShell> {
 
   void _startPreparation() {
     if (_selectedSite != null) {
-      setState(_seedChecklistAndOpen);
+      setState(() {
+        _tripSite = _selectedSite;
+        _seedChecklistAndOpen();
+      });
     }
   }
 
@@ -558,6 +710,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _skillLevel = null;
       _withFamily = null;
       _selectedSite = null;
+      _tripSite = null;
       _hasRecommended = false;
       _equipment.clear();
       _preferences.clear();
@@ -565,7 +718,10 @@ class _CampOnShellState extends State<CampOnShell> {
       _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
+      _weeklyRecommendationsFuture = null;
       _detailEntry = DetailEntry.recommendations;
+      _planCandidates = <Campsite>[];
+      _nearbyCache.clear();
     });
   }
 
@@ -583,6 +739,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _skillLevel = null;
       _withFamily = null;
       _selectedSite = null;
+      _tripSite = null;
       _hasRecommended = false;
       _equipment.clear();
       _preferences.clear();
@@ -590,7 +747,10 @@ class _CampOnShellState extends State<CampOnShell> {
       _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
+      _weeklyRecommendationsFuture = null;
       _detailEntry = DetailEntry.recommendations;
+      _planCandidates = <Campsite>[];
+      _nearbyCache.clear();
     });
   }
 
@@ -608,6 +768,7 @@ class _CampOnShellState extends State<CampOnShell> {
       _skillLevel = null;
       _withFamily = null;
       _selectedSite = null;
+      _tripSite = null;
       _hasRecommended = false;
       _equipment.clear();
       _preferences.clear();
@@ -615,7 +776,10 @@ class _CampOnShellState extends State<CampOnShell> {
       _checklistSeeded = false;
       _recommendationsFuture = null;
       _browseFuture = null;
+      _weeklyRecommendationsFuture = null;
       _detailEntry = DetailEntry.recommendations;
+      _planCandidates = <Campsite>[];
+      _nearbyCache.clear();
     });
   }
 
@@ -770,18 +934,26 @@ class _CampOnShellState extends State<CampOnShell> {
         return HomeScreen(
           onStart: _startOnboarding,
           onBrowse: _goBrowse,
+          onRecommendations: _goRecommendTab,
           onPlanner: _goPlanner,
+          onChecklist: _goChecklist,
           onFavorites: _goFavorites,
           favoriteCount: _favorites.length,
-          tonightCard: TonightCard(
-            regionName: _region.name,
-            lat: _region.lat,
-            lon: _region.lon,
-            service: TonightService(location: readLocationIfAlreadyGranted),
-            destinationLoader: _loadTonightDestination,
-            onExplore: _goBrowse,
-            onPreview: _openNightPreview,
-          ),
+          weeklyRecommendations: _ensureWeeklyRecommendations(),
+          onRetryWeeklyRecommendations: _retryWeeklyRecommendations,
+          onOpenWeeklyRecommendation: (site) =>
+              _selectSite(site, DetailEntry.home),
+          tripDate: _date,
+          region: _region,
+          people: _people,
+          tripSite: _tripSite,
+          checklistDone: [
+            ...CampData.equipmentOptions,
+            ...CampData.fixedChecklist,
+          ].where((item) => _checkedItems.contains(item.apiValue)).length,
+          checklistTotal:
+              CampData.equipmentOptions.length + CampData.fixedChecklist.length,
+          hasRecommended: _hasRecommended,
         );
       case AppStep.onboardingBasics:
         return BasicsScreen(
@@ -793,6 +965,10 @@ class _CampOnShellState extends State<CampOnShell> {
             setState(() {
               _region = region;
               _browseFuture = null;
+              _weeklyRecommendationsFuture = null;
+              _planCandidates = <Campsite>[];
+              // 지역을 옮기면 이전 지역에서 쌓은 마커가 남지 않게 비운다.
+              _nearbyCache.clear();
             });
           },
           onPeopleChanged: (people) => setState(() => _people = people),
@@ -850,7 +1026,7 @@ class _CampOnShellState extends State<CampOnShell> {
         );
       case AppStep.checklist:
         return ChecklistScreen(
-          selectedSite: _selectedSite,
+          selectedSite: _tripSite,
           checkedItems: _checkedItems,
           aiItems: _aiChecklistItems,
           onToggle: (key) => _toggleSetValue(_checkedItems, key),
@@ -862,6 +1038,7 @@ class _CampOnShellState extends State<CampOnShell> {
         return PlannerInputScreen(
           prefill: _buildPlanInput(),
           onBack: _goHome,
+          onEditConditions: _editPlanConditions,
           onGenerated: (plan) => setState(() {
             _plan = plan;
             _step = AppStep.plannerResult;
@@ -870,6 +1047,8 @@ class _CampOnShellState extends State<CampOnShell> {
       case AppStep.plannerResult:
         return PlannerResultScreen(
           plan: _plan!,
+          openableCampsites: {for (final site in _planCandidates) site.name},
+          onOpenCampsite: _openPlanCampsite,
           onBack: () => setState(() => _step = AppStep.plannerInput),
           onRegenerate: () => setState(() => _step = AppStep.plannerInput),
           onSendToChecklist: (items) => setState(() {
@@ -880,13 +1059,8 @@ class _CampOnShellState extends State<CampOnShell> {
       case AppStep.settings:
         return SettingsScreen(
           api: _api,
-          region: _region,
-          people: _people,
-          hasCar: _hasCar,
           preTripAlerts: _preTripAlerts,
-          equipmentCount: _equipment.length,
           onAlertChanged: (value) => setState(() => _preTripAlerts = value),
-          onResetPreferences: _reset,
           onSignOut: _signOut,
           onDeleteAccount: _deleteAccount,
         );
@@ -899,19 +1073,28 @@ class _CampOnShellState extends State<CampOnShell> {
       case AppStep.browse:
         return CampsiteBrowseScreen(
           title: '주변 캠핑장',
-          subtitle: '${_region.name} 반경 20km 이내 캠핑장이에요.',
+          subtitle: '현재 위치 반경 20km 이내 캠핑장이에요.',
           future: _browseFuture,
           emptyText: '반경 20km 이내에서 캠핑장을 찾지 못했어요.',
           onRetry: () {
             setState(() {
-              _browseFuture = _api.fetchAllNearby(region: _region);
+              _browseFuture = _fetchNearbyByCurrentLocation()..ignore();
             });
           },
           onSelect: (site) => _selectSite(site, DetailEntry.browse),
           mapViewBuilder: (sites, onSelect) => CampsiteMapView(
-            region: _region,
+            region: CampRegion(
+              name: '현재 위치',
+              lat: _browseOrigin?.lat ?? _region.lat,
+              lon: _browseOrigin?.lon ?? _region.lon,
+              mapX: 0,
+              mapY: 0,
+            ),
             sites: sites,
             onSelect: onSelect,
+            cache: _nearbyCache,
+            onFetchArea: (lat, lon) =>
+                _api.fetchAllNearbyAt(lat: lat, lon: lon),
           ),
         );
     }
@@ -1412,238 +1595,915 @@ class SocialLoginButton extends StatelessWidget {
   }
 }
 
+enum _HomeStage { noPlan, choosing, preTrip, tripDay, pastTrip }
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.onStart,
     required this.onBrowse,
+    required this.onRecommendations,
     required this.onPlanner,
+    required this.onChecklist,
     required this.onFavorites,
     required this.favoriteCount,
-    required this.tonightCard,
+    required this.weeklyRecommendations,
+    required this.onRetryWeeklyRecommendations,
+    required this.onOpenWeeklyRecommendation,
+    required this.tripDate,
+    required this.region,
+    required this.people,
+    required this.tripSite,
+    required this.checklistDone,
+    required this.checklistTotal,
+    required this.hasRecommended,
+    this.now,
     super.key,
   });
 
   final VoidCallback onStart;
   final VoidCallback onBrowse;
+  final VoidCallback onRecommendations;
   final VoidCallback onPlanner;
+  final VoidCallback onChecklist;
   final VoidCallback onFavorites;
   final int favoriteCount;
+  final Future<List<Campsite>> weeklyRecommendations;
+  final VoidCallback onRetryWeeklyRecommendations;
+  final ValueChanged<Campsite> onOpenWeeklyRecommendation;
+  final DateTime? tripDate;
+  final CampRegion region;
+  final int people;
+  final Campsite? tripSite;
+  final int checklistDone;
+  final int checklistTotal;
+  final bool hasRecommended;
+  final DateTime? now;
 
-  /// 홈 최상단의 "오늘 밤 지수" 카드. 셸이 만들어 넣어준다.
-  final Widget tonightCard;
+  DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
+
+  int? get _daysUntilTrip {
+    if (tripDate == null) return null;
+    return _day(tripDate!).difference(_day(now ?? DateTime.now())).inDays;
+  }
+
+  _HomeStage get _stage {
+    if (tripDate == null && tripSite == null) return _HomeStage.noPlan;
+    if (tripDate == null || tripSite == null) return _HomeStage.choosing;
+    final days = _daysUntilTrip!;
+    if (days > 0) return _HomeStage.preTrip;
+    if (days == 0) return _HomeStage.tripDay;
+    return _HomeStage.pastTrip;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+    return ColoredBox(
+      color: _FreshHomeColors.canvas,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
+        children: [
+          // 기존 로고와 야간 테마 버튼은 그대로 유지한다.
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: CampPalette.light.forest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  LucideIcons.tent,
+                  color: CampPalette.dark.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'CampOn',
+                style: CampText.sectionTitle.copyWith(
+                  fontSize: 21,
+                  color: CampColors.ink,
+                ),
+              ),
+              const Spacer(),
+              const NightThemeToggle(),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Text(
+            'YOUR WEEKEND, YOUR WAY',
+            style: CampText.finePrint.copyWith(
+              color: CampColors.inkMuted80,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _HomeLead(
+            stage: _stage,
+            tripDate: tripDate,
+            region: region,
+            people: people,
+            tripSite: tripSite,
+            daysUntilTrip: _daysUntilTrip,
+            checklistDone: checklistDone,
+            checklistTotal: checklistTotal,
+            onStart: onStart,
+            onPlanner: onPlanner,
+            onRecommendations: hasRecommended ? onRecommendations : onStart,
+            onChecklist: onChecklist,
+          ),
+          const SizedBox(height: 30),
+          _HomeSectionHeader(
+            title: '이번 주 추천',
+            subtitle: '${region.name} 주변 캠핑장',
+            actionLabel: '모두 보기',
+            onAction: onBrowse,
+          ),
+          const SizedBox(height: 12),
+          FutureBuilder<List<Campsite>>(
+            future: weeklyRecommendations,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const _WeeklyRecommendationLoading();
+              }
+              if (snapshot.hasError) {
+                return _WeeklyRecommendationMessage(
+                  icon: LucideIcons.wifiOff,
+                  title: '추천을 불러오지 못했어요',
+                  body: '연결을 확인한 뒤 다시 시도해주세요.',
+                  actionLabel: '다시 시도',
+                  onAction: onRetryWeeklyRecommendations,
+                );
+              }
+              final sites = snapshot.data ?? const <Campsite>[];
+              if (sites.isEmpty) {
+                return _WeeklyRecommendationMessage(
+                  icon: LucideIcons.mapPin,
+                  title: '이번 주 추천을 준비하고 있어요',
+                  body: '다른 지역의 캠핑장을 먼저 둘러보세요.',
+                  actionLabel: '캠핑장 둘러보기',
+                  onAction: onBrowse,
+                );
+              }
+              return _WeeklyRecommendationPager(
+                sites: sites,
+                onOpen: onOpenWeeklyRecommendation,
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          _FavoritesStrip(favoriteCount: favoriteCount, onPressed: onFavorites),
+          const SizedBox(height: 30),
+          const _HomeSectionHeader(title: 'AI 플래너'),
+          const SizedBox(height: 12),
+          _AiPlannerCard(onPressed: onPlanner),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreshHomeColors {
+  static Color get canvas =>
+      CampColors.isDark ? CampColors.canvas : const Color(0xFFE4EBDD);
+  static Color get paper =>
+      CampColors.isDark ? CampColors.surface : const Color(0xFFFFFCF3);
+  static const deepGreen = Color(0xFF18382B);
+  static const lime = Color(0xFFDDF24C);
+}
+
+class _HomeLead extends StatelessWidget {
+  const _HomeLead({
+    required this.stage,
+    required this.tripDate,
+    required this.region,
+    required this.people,
+    required this.tripSite,
+    required this.daysUntilTrip,
+    required this.checklistDone,
+    required this.checklistTotal,
+    required this.onStart,
+    required this.onPlanner,
+    required this.onRecommendations,
+    required this.onChecklist,
+  });
+
+  final _HomeStage stage;
+  final DateTime? tripDate;
+  final CampRegion region;
+  final int people;
+  final Campsite? tripSite;
+  final int? daysUntilTrip;
+  final int checklistDone;
+  final int checklistTotal;
+  final VoidCallback onStart;
+  final VoidCallback onPlanner;
+  final VoidCallback onRecommendations;
+  final VoidCallback onChecklist;
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (stage) {
+      _HomeStage.noPlan => _NoPlanLead(onPlanner: onPlanner, onStart: onStart),
+      _HomeStage.choosing => _ChoosingLead(
+        tripDate: tripDate,
+        region: region,
+        people: people,
+        tripSite: tripSite,
+        onStart: onStart,
+        onRecommendations: onRecommendations,
+      ),
+      _HomeStage.preTrip => _TripLead(
+        eyebrow: 'D-${daysUntilTrip!}',
+        title: tripSite!.name,
+        message: '${_formatKoreanDate(tripDate!)} · $people명',
+        checklistDone: checklistDone,
+        checklistTotal: checklistTotal,
+        actionLabel: '준비 이어가기',
+        onAction: onChecklist,
+      ),
+      _HomeStage.tripDay => _TripLead(
+        eyebrow: '오늘의 캠핑',
+        title: tripSite!.name,
+        message: '오늘은 ${region.name}에서 머무는 날이에요.',
+        checklistDone: checklistDone,
+        checklistTotal: checklistTotal,
+        actionLabel: '체크리스트 확인',
+        onAction: onChecklist,
+      ),
+      _HomeStage.pastTrip => _TripLead(
+        eyebrow: '다녀온 캠핑',
+        title: tripSite!.name,
+        message: '${_formatKoreanDate(tripDate!)}의 캠핑 기록이에요.',
+        checklistDone: checklistDone,
+        checklistTotal: checklistTotal,
+        actionLabel: '다음 캠핑 계획하기',
+        onAction: onPlanner,
+      ),
+    };
+  }
+}
+
+class _NoPlanLead extends StatelessWidget {
+  const _NoPlanLead({required this.onPlanner, required this.onStart});
+
+  final VoidCallback onPlanner;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                // 로고 배지는 디자인에서 테마와 무관하게 같은 색을 쓴다.
-                color: CampPalette.light.forest,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                LucideIcons.tent,
-                color: CampPalette.dark.primary,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'CampOn',
-              style: CampText.sectionTitle.copyWith(
-                fontSize: 21,
-                color: CampColors.ink,
-              ),
-            ),
-            const Spacer(),
-            const NightThemeToggle(),
-          ],
+        Text(
+          '어디로\n떠나볼까요?',
+          style: CampText.display.copyWith(fontSize: 40, height: 1.05),
         ),
         const SizedBox(height: 18),
-        tonightCard,
-        const SizedBox(height: 16),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(22),
-          child: SizedBox(
-            height: 232,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 히어로는 사진 자리를 대신하는 고정 어두운 면이다. 테마를 따라
-                // 밝아지면 위에 얹은 흰 글자가 읽히지 않으므로 라이트 값을 고정한다.
-                DecoratedBox(
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: _FreshHomeColors.deepGreen,
+            borderRadius: BorderRadius.circular(26),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -26,
+                top: -38,
+                child: Container(
+                  width: 122,
+                  height: 122,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        CampPalette.light.forestMid,
-                        CampPalette.light.forest,
-                      ],
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      width: 24,
                     ),
                   ),
                 ),
-                // 디자인의 히어로 오버레이(160deg, rgba(20,40,29,0.55)→0.9).
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment(-0.35, -1),
-                      end: Alignment(0.35, 1),
-                      stops: [0.1, 0.9],
-                      colors: [Color(0x8C14281D), Color(0xE614281D)],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    LucideIcons.sparkles,
+                    color: _FreshHomeColors.lime,
+                    size: 22,
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    '한 줄로 만드는\n나만의 캠핑 계획',
+                    style: CampText.sectionTitle.copyWith(
+                      fontSize: 24,
+                      height: 1.25,
+                      color: Colors.white,
                     ),
                   ),
-                ),
-                const Positioned(
-                  top: 14,
-                  right: 16,
-                  child: IgnorePointer(
-                    child: SizedBox(
-                      width: 130,
-                      height: 46,
-                      child: StarField(starCount: 10, seed: 3),
+                  const SizedBox(height: 8),
+                  Text(
+                    '날씨와 준비물까지 한 번에 정리해드려요.',
+                    style: CampText.caption.copyWith(
+                      color: Colors.white.withValues(alpha: 0.72),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(22),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        '오늘의 캠핑을\n정리해볼까요?',
-                        style: CampText.display.copyWith(
-                          fontSize: 26,
-                          height: 1.25,
-                          color: CampColors.onPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'AI에게 한 줄만 적으면 캠핑장·날씨·준비물·타임라인까지 한 번에 만들어 드려요.',
-                        style: CampText.caption.copyWith(
-                          fontSize: 13,
-                          color: CampPalette.light.greenTint,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      CampButton(
-                        label: 'AI로 캠핑 플랜 짜기',
-                        icon: LucideIcons.sparkles,
-                        onPressed: onPlanner,
-                      ),
-                    ],
+                  const SizedBox(height: 18),
+                  _FreshActionButton(
+                    label: '캠핑 계획 만들기',
+                    icon: LucideIcons.arrowUpRight,
+                    onPressed: onPlanner,
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        CampCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SettingsIcon(
-                    icon: LucideIcons.sparkles,
-                    background: CampColors.amberTint,
-                    iconColor: CampColors.primaryDark,
-                    size: 40,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    '맞춤 추천',
-                    style: CampText.sectionTitle.copyWith(fontSize: 19),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: onStart,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.only(top: 12),
+                      ),
+                      child: const Text('조건부터 추천받기'),
+                    ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '날짜, 지역, 이동수단을 기준으로 캠핑장을 추천합니다.',
-                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
-              ),
-              const SizedBox(height: 16),
-              CampButton(
-                label: '추천 시작',
-                icon: LucideIcons.sparkles,
-                background: CampColors.forest,
-                onPressed: onStart,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        CampCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SettingsIcon(icon: LucideIcons.mountain, size: 40),
-                  const SizedBox(width: 12),
-                  Text(
-                    '캠핑장 둘러보기',
-                    style: CampText.sectionTitle.copyWith(fontSize: 19),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '현재 선택된 지역 근처의 캠핑장을 먼저 살펴봅니다.',
-                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
-              ),
-              const SizedBox(height: 16),
-              CampButton.secondary(
-                label: '목록 보기',
-                foreground: CampColors.forest,
-                borderColor: CampColors.forest,
-                onPressed: onBrowse,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        CampCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SettingsIcon(icon: LucideIcons.heart, size: 40),
-                  const SizedBox(width: 12),
-                  Text(
-                    '찜한 캠핑장',
-                    style: CampText.sectionTitle.copyWith(fontSize: 19),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                favoriteCount == 0
-                    ? '마음에 드는 캠핑장에 하트를 눌러보세요.'
-                    : '$favoriteCount곳을 이 기기에 저장해 두었어요.',
-                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
-              ),
-              const SizedBox(height: 16),
-              CampButton.secondary(
-                label: '찜 목록 보기',
-                foreground: CampColors.forest,
-                borderColor: CampColors.forest,
-                onPressed: onFavorites,
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ChoosingLead extends StatelessWidget {
+  const _ChoosingLead({
+    required this.tripDate,
+    required this.region,
+    required this.people,
+    required this.tripSite,
+    required this.onStart,
+    required this.onRecommendations,
+  });
+
+  final DateTime? tripDate;
+  final CampRegion region;
+  final int people;
+  final Campsite? tripSite;
+  final VoidCallback onStart;
+  final VoidCallback onRecommendations;
+
+  @override
+  Widget build(BuildContext context) {
+    final needsDate = tripDate == null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          needsDate ? '날짜만 정하면\n준비가 시작돼요' : '캠핑장은\n정하셨나요?',
+          style: CampText.display.copyWith(fontSize: 38, height: 1.08),
+        ),
+        const SizedBox(height: 18),
+        _FreshPaperCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                needsDate ? tripSite!.name : _formatKoreanDate(tripDate!),
+                style: CampText.sectionTitle.copyWith(fontSize: 21),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                needsDate ? '방문 날짜를 선택해주세요.' : '${region.name} · $people명',
+                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              ),
+              const SizedBox(height: 16),
+              _FreshActionButton(
+                label: needsDate ? '날짜 선택하기' : '추천 캠핑장 보기',
+                icon: needsDate ? LucideIcons.calendar : LucideIcons.mapPin,
+                onPressed: needsDate ? onStart : onRecommendations,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TripLead extends StatelessWidget {
+  const _TripLead({
+    required this.eyebrow,
+    required this.title,
+    required this.message,
+    required this.checklistDone,
+    required this.checklistTotal,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String eyebrow;
+  final String title;
+  final String message;
+  final int checklistDone;
+  final int checklistTotal;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = checklistTotal == 0 ? 0.0 : checklistDone / checklistTotal;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: _FreshHomeColors.deepGreen,
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            decoration: BoxDecoration(
+              color: _FreshHomeColors.lime,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              eyebrow,
+              style: CampText.captionStrong.copyWith(
+                color: _FreshHomeColors.deepGreen,
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          Text(
+            title,
+            style: CampText.displaySmall.copyWith(
+              fontSize: 29,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            message,
+            style: CampText.caption.copyWith(
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 7,
+                    value: progress,
+                    backgroundColor: Colors.white.withValues(alpha: 0.15),
+                    valueColor: const AlwaysStoppedAnimation(
+                      _FreshHomeColors.lime,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$checklistDone / $checklistTotal',
+                style: CampText.captionStrong.copyWith(color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _FreshActionButton(
+            label: actionLabel,
+            icon: LucideIcons.arrowRight,
+            onPressed: onAction,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreshPaperCard extends StatelessWidget {
+  const _FreshPaperCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _FreshHomeColors.paper,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: CampColors.hairline),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _AiPlannerCard extends StatelessWidget {
+  const _AiPlannerCard({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: _FreshHomeColors.deepGreen,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(LucideIcons.sparkles, color: _FreshHomeColors.lime, size: 22),
+          const SizedBox(height: 18),
+          Text(
+            '원하는 캠핑을\nAI와 함께 계획해보세요',
+            style: CampText.sectionTitle.copyWith(
+              fontSize: 22,
+              height: 1.25,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '일정과 취향에 맞는 캠핑장부터 준비물까지 추천해드려요.',
+            style: CampText.caption.copyWith(
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _FreshActionButton(
+            label: 'AI 플래너 시작하기',
+            icon: LucideIcons.arrowUpRight,
+            onPressed: onPressed,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreshActionButton extends StatelessWidget {
+  const _FreshActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          foregroundColor: _FreshHomeColors.deepGreen,
+          backgroundColor: _FreshHomeColors.lime,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+          ),
+          textStyle: CampText.button,
+        ),
+        iconAlignment: IconAlignment.end,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      ),
+    );
+  }
+}
+
+class _HomeSectionHeader extends StatelessWidget {
+  const _HomeSectionHeader({
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: CampText.sectionTitle.copyWith(fontSize: 21)),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: CampText.caption.copyWith(
+                    color: CampColors.inkMuted80,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (actionLabel != null)
+          TextButton(
+            onPressed: onAction,
+            style: TextButton.styleFrom(
+              foregroundColor: CampColors.ink,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              visualDensity: VisualDensity.compact,
+            ),
+            child: Text(actionLabel!),
+          ),
+      ],
+    );
+  }
+}
+
+class _WeeklyRecommendationPager extends StatefulWidget {
+  const _WeeklyRecommendationPager({required this.sites, required this.onOpen});
+
+  final List<Campsite> sites;
+  final ValueChanged<Campsite> onOpen;
+
+  @override
+  State<_WeeklyRecommendationPager> createState() =>
+      _WeeklyRecommendationPagerState();
+}
+
+class _WeeklyRecommendationPagerState
+    extends State<_WeeklyRecommendationPager> {
+  final PageController _controller = PageController();
+  int _page = 0;
+
+  @override
+  void didUpdateWidget(_WeeklyRecommendationPager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sites != widget.sites) {
+      _page = 0;
+      if (_controller.hasClients) _controller.jumpToPage(0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 270,
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: widget.sites.length,
+            onPageChanged: (page) => setState(() => _page = page),
+            itemBuilder: (context, index) {
+              final site = widget.sites[index];
+              return Semantics(
+                label: '추천 ${index + 1}, ${site.name}',
+                button: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () => widget.onOpen(site),
+                  child: Container(
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: _FreshHomeColors.paper,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: CampColors.hairline),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: 174,
+                          width: double.infinity,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              site.validThumbnailUrl == null
+                                  ? CampsiteCoverImage(site: site)
+                                  : Image.network(
+                                      site.validThumbnailUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, _, _) =>
+                                          CampImagePlaceholder(),
+                                    ),
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Color(0xA6000000),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 18,
+                                right: 18,
+                                bottom: 14,
+                                child: Text(
+                                  site.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: CampText.sectionTitle.copyWith(
+                                    fontSize: 22,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    site.lineIntro.isNotEmpty
+                                        ? site.lineIntro
+                                        : site.tags.take(2).join(' · '),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: CampText.caption.copyWith(
+                                      color: CampColors.inkMuted80,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: const BoxDecoration(
+                                    color: _FreshHomeColors.deepGreen,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    LucideIcons.arrowUpRight,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var index = 0; index < widget.sites.length; index++)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: index == _page ? 20 : 6,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  color: index == _page
+                      ? _FreshHomeColors.deepGreen
+                      : CampColors.inkMuted48,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            const SizedBox(width: 7),
+            Text(
+              '${_page + 1} / ${widget.sites.length}',
+              style: CampText.finePrint.copyWith(color: CampColors.inkMuted80),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _WeeklyRecommendationLoading extends StatelessWidget {
+  const _WeeklyRecommendationLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 270,
+      decoration: BoxDecoration(
+        color: _FreshHomeColors.paper,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      alignment: Alignment.center,
+      child: CircularProgressIndicator(color: CampColors.forestMid),
+    );
+  }
+}
+
+class _WeeklyRecommendationMessage extends StatelessWidget {
+  const _WeeklyRecommendationMessage({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FreshPaperCard(
+      child: Column(
+        children: [
+          Icon(icon, color: CampColors.forestMid),
+          const SizedBox(height: 10),
+          Text(title, style: CampText.bodyStrong),
+          const SizedBox(height: 4),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+          ),
+          const SizedBox(height: 12),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+class _FavoritesStrip extends StatelessWidget {
+  const _FavoritesStrip({required this.favoriteCount, required this.onPressed});
+
+  final int favoriteCount;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FreshPaperCard(
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: CampColors.amberTint,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(LucideIcons.heart, color: CampColors.primaryDark),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('찜한 캠핑장', style: CampText.bodyStrong),
+                const SizedBox(height: 2),
+                Text(
+                  favoriteCount == 0
+                      ? '마음에 드는 캠핑장에 하트를 눌러보세요.'
+                      : '$favoriteCount곳을 이 기기에 저장해 두었어요.',
+                  style: CampText.caption.copyWith(
+                    color: CampColors.inkMuted80,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: onPressed, child: const Text('찜 목록 보기')),
+        ],
+      ),
     );
   }
 }
@@ -1867,6 +2727,190 @@ class PreferencesScreen extends StatelessWidget {
   }
 }
 
+/// AI 플래너가 넘길 조건 묶음. 시트를 저장하면 이 값으로 돌아온다.
+class PlanConditions {
+  const PlanConditions({
+    required this.date,
+    required this.region,
+    required this.people,
+    required this.hasCar,
+    required this.skillLevel,
+    required this.equipment,
+    required this.preferences,
+  });
+
+  final DateTime date;
+  final CampRegion region;
+  final int people;
+  final bool hasCar;
+  final String skillLevel;
+  final Set<String> equipment;
+  final Set<String> preferences;
+}
+
+/// 플래너에서 조건을 고치는 시트.
+///
+/// 온보딩과 같은 입력 위젯을 쓰되 단계를 밟지 않고 한 화면에서 고친다.
+/// 저장을 눌러야 반영되므로, 중간에 닫으면 원래 조건이 그대로 남는다.
+class PlanConditionSheet extends StatefulWidget {
+  const PlanConditionSheet({required this.initial, super.key});
+
+  final PlanConditions initial;
+
+  @override
+  State<PlanConditionSheet> createState() => _PlanConditionSheetState();
+}
+
+class _PlanConditionSheetState extends State<PlanConditionSheet> {
+  late DateTime _date = widget.initial.date;
+  late CampRegion _region = widget.initial.region;
+  late int _people = widget.initial.people;
+  late bool _hasCar = widget.initial.hasCar;
+  late String _skillLevel = widget.initial.skillLevel;
+  // 셸이 들고 있는 집합을 그대로 고치면 취소해도 되돌릴 수 없다. 복사해 둔다.
+  late final Set<String> _equipment = {...widget.initial.equipment};
+  late final Set<String> _preferences = {...widget.initial.preferences};
+
+  void _toggle(Set<String> values, String value) {
+    setState(() {
+      if (!values.remove(value)) {
+        values.add(value);
+      }
+    });
+  }
+
+  void _save() {
+    Navigator.of(context).pop(
+      PlanConditions(
+        date: _date,
+        region: _region,
+        people: _people,
+        hasCar: _hasCar,
+        skillLevel: _skillLevel,
+        equipment: _equipment,
+        preferences: _preferences,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.88,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 10, 4),
+              child: Row(
+                children: [
+                  Expanded(child: Text('조건 수정', style: CampText.sectionTitle)),
+                  IconButton(
+                    tooltip: '닫기',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(Icons.close, color: CampColors.inkMuted80),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                children: [
+                  FormLabel('캠핑 날짜', color: CampColors.primaryDark),
+                  DatePickerField(
+                    date: _date,
+                    onChanged: (date) => setState(() => _date = date),
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('지역', color: CampColors.primaryDark),
+                  RegionPicker(
+                    selected: _region,
+                    onChanged: (region) => setState(() => _region = region),
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('인원 수', color: CampColors.primaryDark),
+                  PeopleStepper(
+                    value: _people,
+                    onChanged: (people) => setState(() => _people = people),
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('차량 보유 여부'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      CampChoiceChip(
+                        label: '차량 있음',
+                        selected: _hasCar,
+                        onTap: () => setState(() => _hasCar = true),
+                      ),
+                      CampChoiceChip(
+                        label: '차량 없음',
+                        selected: !_hasCar,
+                        onTap: () => setState(() => _hasCar = false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('캠핑 숙련도'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: CampData.skillLevels
+                        .map(
+                          (skill) => CampChoiceChip(
+                            label: skill,
+                            selected: _skillLevel == skill,
+                            onTap: () => setState(() => _skillLevel = skill),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('보유 장비'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: CampData.equipmentOptions
+                        .map(
+                          (item) => CampChoiceChip(
+                            label: item.label,
+                            selected: _equipment.contains(item.apiValue),
+                            onTap: () => _toggle(_equipment, item.apiValue),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 22),
+                  FormLabel('선호 조건'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: CampData.preferenceOptions
+                        .map(
+                          (item) => CampChoiceChip(
+                            label: item.label,
+                            selected: _preferences.contains(item.apiValue),
+                            onTap: () => _toggle(_preferences, item.apiValue),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+              ),
+            ),
+            BottomActionBar(
+              child: CampButton(label: '이 조건으로 저장', onPressed: _save),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 typedef CampsiteMapBuilder =
     Widget Function(List<Campsite> sites, ValueChanged<Campsite> onSelect);
 
@@ -1935,8 +2979,17 @@ class _CampsiteBrowseScreenState extends State<CampsiteBrowseScreen> {
                 return LoadingPanel();
               }
               if (snapshot.hasError) {
+                final error = snapshot.error;
+                if (error is LocationBlockedException) {
+                  return _LocationBlockedPanel(
+                    error: error,
+                    onRetry: widget.onRetry,
+                    onOpenSettings: () => const GeolocatorLocationProvider()
+                        .openSettings(error.reason),
+                  );
+                }
                 return ErrorPanel(
-                  message: snapshot.error.toString(),
+                  message: error.toString(),
                   onRetry: widget.onRetry,
                 );
               }
@@ -2457,13 +3510,13 @@ class _RecommendationCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (url == null)
-              CampImagePlaceholder()
+              CampsiteCoverImage(site: site)
             else
               Image.network(
                 url,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) =>
-                    CampImagePlaceholder(),
+                    CampsiteCoverImage(site: site),
               ),
             const DecoratedBox(
               decoration: BoxDecoration(
@@ -2514,9 +3567,7 @@ class _RecommendationCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    site.lineIntro.isEmpty
-                        ? site.accessHint
-                        : '${site.accessHint} · ${site.lineIntro}',
+                    site.lineIntro,
                     style: CampText.caption.copyWith(
                       fontSize: 13,
                       color: CampPalette.light.greenTint,
@@ -2624,6 +3675,8 @@ class CampsiteDetailScreen extends StatelessWidget {
     required this.onPrepare,
     required this.isFavorite,
     required this.onToggleFavorite,
+    this.reservationService,
+    this.openUrl,
     super.key,
   });
 
@@ -2636,6 +3689,8 @@ class CampsiteDetailScreen extends StatelessWidget {
   final VoidCallback onPrepare;
   final bool isFavorite;
   final VoidCallback onToggleFavorite;
+  final CampsiteReservationService? reservationService;
+  final Future<bool> Function(Uri)? openUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -2648,114 +3703,149 @@ class CampsiteDetailScreen extends StatelessWidget {
       );
     }
 
+    final imageUrls = campsite.validImageUrls.isNotEmpty
+        ? campsite.validImageUrls
+        : <String>[?campsite.validThumbnailUrl];
+
     return Column(
       children: [
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            padding: const EdgeInsets.only(bottom: 28),
             children: [
-              Row(
-                children: [
-                  BackCircleButton(onPressed: onBack),
-                  const Spacer(),
-                  FavoriteHeartButton(
-                    isFavorite: isFavorite,
-                    onPressed: onToggleFavorite,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              CampsiteHeroImage(site: campsite),
-              const SizedBox(height: 16),
-              Text(campsite.name, style: CampText.tagline),
-              const SizedBox(height: 2),
-              Text(
-                campsite.caption,
-                style: CampText.caption.copyWith(color: CampColors.inkMuted48),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                campsite.scoreLabel,
-                style: CampText.bodyStrong.copyWith(color: CampColors.primary),
-              ),
-              if (campsite.description.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(
-                  campsite.description,
-                  style: CampText.body.copyWith(color: CampColors.inkMuted80),
-                ),
-              ],
-              const SizedBox(height: 22),
-              FormLabel('시설 점수'),
-              FacilityBars(site: campsite),
-              const SizedBox(height: 22),
-              FormLabel(hasCar ? '차량 이동' : '대중교통 · 도보 이동'),
-              Text(
-                campsite.accessDescription(hasCar: hasCar),
-                style: CampText.body.copyWith(color: CampColors.inkMuted80),
-              ),
-              const SizedBox(height: 22),
-              FormLabel('길찾기'),
-              DirectionsCard(
-                fetchDirections: api.fetchDirections,
-                location: const GeolocatorLocationProvider(),
+              _CampsiteDetailHero(
                 site: campsite,
+                regionName: region.name,
+                onBack: onBack,
+                isFavorite: isFavorite,
+                onToggleFavorite: onToggleFavorite,
               ),
-              const SizedBox(height: 22),
-              FormLabel('그날 밤'),
-              NightPreviewButton(
-                placeName: campsite.name,
-                lat: campsite.lat,
-                lon: campsite.lon,
-                actionLabel: '이 캠핑장으로 준비 시작',
-                onAction: onPrepare,
+              _CampsiteDetailSummary(
+                site: campsite,
+                reservationService:
+                    reservationService ?? CampsiteReservationService.shared,
+                openUrl: openUrl,
               ),
-              const SizedBox(height: 22),
-              FormLabel('날씨 리스크 · 준비 중'),
-              Text(
-                '현재 API 명세에는 날씨 정보가 없어 캠핑장 시설과 거리 기준으로 먼저 안내해요.',
-                style: CampText.body.copyWith(color: CampColors.inkMuted80),
-              ),
-              const SizedBox(height: 22),
-              FormLabel('이용 후기'),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(campsite.ratingLabel, style: CampText.bodyStrong),
-                  const SizedBox(width: 8),
-                  Text(
-                    '· 커뮤니티 준비 중',
-                    style: CampText.caption.copyWith(
-                      color: CampColors.inkMuted48,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 26, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (campsite.lineIntro.isNotEmpty ||
+                        campsite.description.isNotEmpty) ...[
+                      _DetailSection(
+                        title: '소개',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (campsite.lineIntro.isNotEmpty) ...[
+                              Text(
+                                campsite.lineIntro,
+                                style: CampText.bodyStrong.copyWith(
+                                  fontSize: 16,
+                                  color: CampColors.ink,
+                                ),
+                              ),
+                              if (campsite.description.isNotEmpty)
+                                const SizedBox(height: 8),
+                            ],
+                            if (campsite.description.isNotEmpty)
+                              Text(
+                                campsite.description,
+                                style: CampText.body.copyWith(
+                                  color: CampColors.inkMuted80,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const _DetailDivider(),
+                    ],
+                    _DetailSection(
+                      key: const Key('campsite-detail-facilities'),
+                      title: '편의시설',
+                      child: _FacilityOverview(site: campsite),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              for (final review in campsite.previewReviews)
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: CampColors.hairline)),
-                  ),
-                  child: Text(
-                    '“$review”',
-                    style: CampText.caption.copyWith(
-                      color: CampColors.inkMuted80,
+                    if (campsite.equipmentRental.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        '대여 가능',
+                        style: CampText.captionStrong.copyWith(
+                          color: CampColors.inkMuted48,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final item in campsite.equipmentRental)
+                            TipTag(label: item),
+                        ],
+                      ),
+                    ],
+                    const _DetailDivider(),
+                    _DetailSection(
+                      title: '날씨',
+                      child: CampsiteWeatherCard(
+                        lat: campsite.lat,
+                        lon: campsite.lon,
+                      ),
                     ),
-                  ),
-                ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: onCommunity,
-                  style: TextButton.styleFrom(
-                    foregroundColor: CampColors.primaryDark,
-                    padding: EdgeInsets.zero,
-                    textStyle: CampText.captionStrong,
-                  ),
-                  child: const Text('커뮤니티에서 더 보기'),
+                    const _DetailDivider(),
+                    _DetailSection(
+                      title: hasCar ? '차량 이동' : '대중교통 · 도보 이동',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            campsite.accessDescription(hasCar: hasCar),
+                            style: CampText.body.copyWith(
+                              color: CampColors.inkMuted80,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          DirectionsCard(
+                            fetchDirections: api.fetchDirections,
+                            location: const GeolocatorLocationProvider(),
+                            site: campsite,
+                            hasCar: hasCar,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (imageUrls.isNotEmpty) ...[
+                      const _DetailDivider(),
+                      _DetailSection(
+                        title: '사진으로 둘러보기',
+                        child: CampsiteSpatialPreviewCard(
+                          campsiteName: campsite.name,
+                          imageUrls: imageUrls,
+                        ),
+                      ),
+                    ],
+                    const _DetailDivider(),
+                    _DetailSection(
+                      title: '캠퍼들의 이야기',
+                      child: _DetailLinkCard(
+                        icon: LucideIcons.messagesSquare,
+                        text: '후기를 확인하고 내 이야기도 남겨보세요.',
+                        actionLabel: '커뮤니티 열기',
+                        onTap: onCommunity,
+                      ),
+                    ),
+                    const _DetailDivider(),
+                    _DetailSection(
+                      title: '그날 밤',
+                      child: NightPreviewButton(
+                        placeName: campsite.name,
+                        lat: campsite.lat,
+                        lon: campsite.lon,
+                        actionLabel: '이 캠핑장으로 준비 시작',
+                        onAction: onPrepare,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -2769,6 +3859,376 @@ class CampsiteDetailScreen extends StatelessWidget {
   }
 }
 
+class _CampsiteDetailHero extends StatelessWidget {
+  const _CampsiteDetailHero({
+    required this.site,
+    required this.regionName,
+    required this.onBack,
+    required this.isFavorite,
+    required this.onToggleFavorite,
+  });
+
+  final Campsite site;
+  final String regionName;
+  final VoidCallback onBack;
+  final bool isFavorite;
+  final VoidCallback onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const Key('campsite-detail-hero'),
+      height: 356,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CampsiteHeroImage(
+            site: site,
+            region: regionName,
+            aspectRatio: 1,
+            borderRadius: BorderRadius.zero,
+            attributionBottom: 108,
+          ),
+          const IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0, 0.42, 1],
+                  colors: [
+                    Color(0x59000000),
+                    Colors.transparent,
+                    Color(0xD9000000),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 20,
+            top: 4,
+            child: BackCircleButton(onPressed: onBack, onImage: true),
+          ),
+          Positioned(
+            right: 20,
+            top: 4,
+            child: FavoriteHeartButton(
+              isFavorite: isFavorite,
+              onPressed: onToggleFavorite,
+              onImage: true,
+            ),
+          ),
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 34,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  site.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: CampText.displaySmall.copyWith(
+                    fontSize: 25,
+                    height: 1.2,
+                    color: Colors.white,
+                    shadows: const [
+                      Shadow(color: Colors.black54, blurRadius: 10),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CampsiteDetailSummary extends StatelessWidget {
+  const _CampsiteDetailSummary({
+    required this.site,
+    required this.reservationService,
+    this.openUrl,
+  });
+
+  final Campsite site;
+  final CampsiteReservationService reservationService;
+  final Future<bool> Function(Uri)? openUrl;
+
+  Future<void> _openReservation(BuildContext context) async {
+    final uri =
+        site.validReservationUri ??
+        await reservationService.lookup(name: site.name) ??
+        naverReservationSearchUri(site.name);
+    final opener =
+        openUrl ??
+        (Uri url) => launchUrl(url, mode: LaunchMode.externalApplication);
+    final opened = await opener(uri);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('링크를 열지 못했습니다.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('campsite-detail-summary'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: CampColors.surface,
+        border: Border(bottom: BorderSide(color: CampColors.hairline)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _SummaryMetric(
+              label: '예약 정보',
+              value: site.validReservationUri == null ? '네이버 찾기' : '예약하기',
+              onTap: () => _openReservation(context),
+            ),
+          ),
+          const _SummaryDivider(),
+          Expanded(
+            child: _SummaryMetric(
+              label: '거리',
+              value: site.distance > 0 ? _formatDistance(site.distance) : '—',
+            ),
+          ),
+          const _SummaryDivider(),
+          Expanded(
+            child: _SummaryMetric(
+              label: '시설 점수',
+              value: '${site.ratingLabel} / 5',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryMetric extends StatelessWidget {
+  const _SummaryMetric({required this.label, required this.value, this.onTap});
+
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: CampText.finePrint.copyWith(color: CampColors.inkMuted48),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          value,
+          style: CampText.bodyStrong.copyWith(
+            fontSize: 17,
+            color: CampColors.ink,
+          ),
+        ),
+      ],
+    );
+    if (onTap == null) return content;
+    return Semantics(
+      button: true,
+      child: InkWell(onTap: onTap, child: content),
+    );
+  }
+}
+
+class _SummaryDivider extends StatelessWidget {
+  const _SummaryDivider();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 42,
+    child: VerticalDivider(width: 1, color: CampColors.hairline),
+  );
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({required this.title, required this.child, super.key});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: CampText.sectionTitle.copyWith(fontSize: 20)),
+        const SizedBox(height: 14),
+        child,
+      ],
+    );
+  }
+}
+
+class _DetailDivider extends StatelessWidget {
+  const _DetailDivider();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 26),
+    child: Divider(height: 1, color: CampColors.hairline),
+  );
+}
+
+class _FacilityOverview extends StatelessWidget {
+  const _FacilityOverview({required this.site});
+
+  final Campsite site;
+
+  @override
+  Widget build(BuildContext context) {
+    final facilities = <(IconData, String, int)>[
+      (Icons.wc_outlined, '화장실', site.facilityScore('TOILET')),
+      (Icons.shower_outlined, '샤워실', site.facilityScore('SHOWER')),
+      (Icons.water_drop_outlined, '개수대', site.facilityScore('SINK')),
+      (Icons.electric_bolt_outlined, '전기', site.facilityScore('ELECTRICITY')),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxWidth - 10) / 2;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final facility in facilities)
+              SizedBox(
+                width: width,
+                child: _FacilityTile(
+                  icon: facility.$1,
+                  label: facility.$2,
+                  value: '${facility.$3} / 5',
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _FacilityTile extends StatelessWidget {
+  const _FacilityTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CampColors.surface,
+        border: Border.all(color: CampColors.hairline),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: CampColors.forestMid),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: CampText.captionStrong),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: CampText.finePrint.copyWith(
+                    color: CampColors.inkMuted48,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailLinkCard extends StatelessWidget {
+  const _DetailLinkCard({
+    required this.icon,
+    required this.text,
+    required this.actionLabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String text;
+  final String actionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: CampColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: CampColors.hairline),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: CampColors.forestMid),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      text,
+                      style: CampText.caption.copyWith(
+                        color: CampColors.inkMuted80,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      actionLabel,
+                      style: CampText.captionStrong.copyWith(
+                        color: CampColors.primaryDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: CampColors.inkMuted48),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 typedef DirectionsFetcher =
     Future<DirectionResult> Function({
       required double originX,
@@ -2777,17 +4237,23 @@ typedef DirectionsFetcher =
       required double destY,
     });
 
+typedef UrlOpener = Future<bool> Function(Uri uri);
+
 class DirectionsCard extends StatefulWidget {
   const DirectionsCard({
     required this.fetchDirections,
     required this.location,
     required this.site,
+    required this.hasCar,
+    this.openUrl,
     super.key,
   });
 
   final DirectionsFetcher fetchDirections;
   final LocationProvider location;
   final Campsite site;
+  final bool hasCar;
+  final UrlOpener? openUrl;
 
   @override
   State<DirectionsCard> createState() => _DirectionsCardState();
@@ -2795,6 +4261,7 @@ class DirectionsCard extends StatefulWidget {
 
 class _DirectionsCardState extends State<DirectionsCard> {
   bool _loading = false;
+  LocationPoint? _origin;
   DirectionResult? _result;
   Object? _error;
 
@@ -2818,6 +4285,7 @@ class _DirectionsCardState extends State<DirectionsCard> {
       }
       setState(() {
         _loading = false;
+        _origin = origin;
         _result = result;
       });
     } catch (error) {
@@ -2828,6 +4296,32 @@ class _DirectionsCardState extends State<DirectionsCard> {
         _loading = false;
         _error = error;
       });
+    }
+  }
+
+  /// 이미 확보한 출발지·도착지 좌표로 카카오맵 길찾기를 연다. 모바일웹 스킴을 쓰면
+  /// 앱이 설치돼 있을 때는 카카오맵 앱으로, 없을 때는 스토어로 카카오 쪽에서 알아서
+  /// 보내주므로 iOS/Android 앱스킴 등록 없이도 동작한다.
+  Future<void> _openKakaoMap() async {
+    final origin = _origin;
+    if (origin == null) {
+      return;
+    }
+    final by = widget.hasCar ? 'car' : 'publictransit';
+    final uri = Uri.parse(
+      'http://m.map.kakao.com/scheme/route'
+      '?sp=${origin.lat},${origin.lon}'
+      '&ep=${widget.site.lat},${widget.site.lon}'
+      '&by=$by',
+    );
+    final opener =
+        widget.openUrl ??
+        (Uri u) => launchUrl(u, mode: LaunchMode.externalApplication);
+    final opened = await opener(uri);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('링크를 열지 못했습니다.')));
     }
   }
 
@@ -2886,19 +4380,30 @@ class _DirectionsCardState extends State<DirectionsCard> {
         onPressed: _load,
       );
     }
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _DirectionMetric(
-            label: '거리',
-            value: _formatDistance(result.distanceMeters),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: _DirectionMetric(
+                label: '거리',
+                value: _formatDistance(result.distanceMeters),
+              ),
+            ),
+            Expanded(
+              child: _DirectionMetric(
+                label: '예상 시간',
+                value: _formatDuration(result.durationSeconds),
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: _DirectionMetric(
-            label: '예상 시간',
-            value: _formatDuration(result.durationSeconds),
-          ),
+        const SizedBox(height: 12),
+        CampButton.secondary(
+          label: '카카오맵으로 이동',
+          icon: Icons.map_outlined,
+          onPressed: _openKakaoMap,
         ),
       ],
     );
@@ -3211,6 +4716,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<List<CampPost>>? _postsFuture;
   bool _composing = false;
   bool _submitting = false;
+
   /// 차단한 유저 ID 집합 (글 필터링에 사용)
   Set<int> _blockedUserIds = const {};
 
@@ -3360,12 +4866,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   /// 게시글 신고 POST /api/v1/posts/{postId}/reports
   Future<void> _reportPost(CampPost post) async {
-    final reasons = <String>[
-      '스팸/광고',
-      '욕설/혐오 표현',
-      '허위 정보',
-      '기타',
-    ];
+    final reasons = <String>['스팸/광고', '욕설/혐오 표현', '허위 정보', '기타'];
     String? selectedReason = reasons.first;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -3417,10 +4918,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
     if (confirmed != true || selectedReason == null) return;
     try {
-      await widget.api.reportPost(
-        postId: post.id,
-        reason: selectedReason!,
-      );
+      await widget.api.reportPost(postId: post.id, reason: selectedReason!);
       if (mounted) _showMessage('신고가 접수되었어요.');
     } catch (e) {
       if (mounted) _showMessage('신고에 실패했어요: $e');
@@ -3481,9 +4979,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
             final allPosts = snapshot.data ?? const <CampPost>[];
             // 차단한 유저의 글 필터링
             final posts = allPosts
-                .where((p) =>
-                    p.authorId == null ||
-                    !_blockedUserIds.contains(p.authorId))
+                .where(
+                  (p) =>
+                      p.authorId == null ||
+                      !_blockedUserIds.contains(p.authorId),
+                )
                 .toList();
             if (posts.isEmpty) {
               return CampCard(
@@ -3714,15 +5214,15 @@ class _BlockManagementScreenState extends State<BlockManagementScreen> {
     try {
       await widget.api.unblockUser(user.blockedUserId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('차단을 해제했어요.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('차단을 해제했어요.')));
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('차단 해제에 실패했어요: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('차단 해제에 실패했어요: $e')));
       }
     }
   }
@@ -3730,10 +5230,7 @@ class _BlockManagementScreenState extends State<BlockManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('차단 관리'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('차단 관리'), centerTitle: true),
       body: FutureBuilder<List<BlockedUser>>(
         future: _future,
         builder: (context, snapshot) {
@@ -3747,10 +5244,7 @@ class _BlockManagementScreenState extends State<BlockManagementScreen> {
                 children: [
                   Text('목록을 불러오지 못했어요.\n${snapshot.error}'),
                   const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: _load,
-                    child: const Text('다시 시도'),
-                  ),
+                  ElevatedButton(onPressed: _load, child: const Text('다시 시도')),
                 ],
               ),
             );
@@ -3790,15 +5284,14 @@ class _BlockManagementScreenState extends State<BlockManagementScreen> {
                 subtitle: user.createdAt != null
                     ? Text(
                         '차단일: ${user.createdAt!.year}.${user.createdAt!.month.toString().padLeft(2, '0')}.${user.createdAt!.day.toString().padLeft(2, '0')}',
-                        style: CampText.finePrint
-                            .copyWith(color: CampColors.inkMuted48),
+                        style: CampText.finePrint.copyWith(
+                          color: CampColors.inkMuted48,
+                        ),
                       )
                     : null,
                 trailing: TextButton(
                   onPressed: () => _unblock(user),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red,
-                  ),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
                   child: const Text('차단 해제'),
                 ),
               );
@@ -3842,7 +5335,7 @@ class _AppVersionRowState extends State<AppVersionRow> {
   Widget build(BuildContext context) {
     return SettingsRow(
       icon: Icons.info_outline_rounded,
-      title: '앱 버전',
+      title: '버전 정보',
       value: _version,
     );
   }
@@ -3923,9 +5416,10 @@ class LegalDocumentScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final isTerms = document == LegalDocument.terms;
     final title = isTerms ? '이용약관' : '개인정보 처리방침';
+    final effectiveDate = isTerms ? '2026년 8월 3일' : '2026년 9월 1일';
     final body = isTerms
         ? LegalDocuments.terms(contactEmail: LegalConfig.contactEmail)
-        : LegalDocuments.privacy(contactEmail: LegalConfig.contactEmail);
+        : LegalDocuments.privacy();
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: SafeArea(
@@ -3936,7 +5430,7 @@ class LegalDocumentScreen extends StatelessWidget {
               Text(title, style: CampText.displaySmall),
               const SizedBox(height: 8),
               Text(
-                '시행일: 2026년 8월 3일',
+                '시행일: $effectiveDate',
                 style: CampText.caption.copyWith(color: CampColors.inkMuted80),
               ),
               const SizedBox(height: 20),
@@ -3979,90 +5473,106 @@ class LegalDocuments {
 문의, 신고 및 권리 침해 통지는 $contactEmail 로 보내실 수 있습니다. 이 약관은 법령이나 서비스 변경에 따라 개정될 수 있으며, 중요한 변경은 시행 전에 앱 또는 공개 페이지로 안내합니다.
 ''';
 
-  static String privacy({required String contactEmail}) =>
-      '''
-CampOn 운영팀(이하 “운영자”)은 개인정보 보호법 등 관련 법령을 준수하며, 아래와 같이 개인정보를 처리합니다.
+  static String privacy() => '''
+제1조 (개인정보의 처리 목적)
+CAMPON은 다음 목적을 위해 개인정보를 처리합니다.
+1. 캠핑장 추천 및 이동 가능성·시설 적합도 계산
+2. 장비 부족 분석 및 준비 체크리스트 생성
+3. 날씨 기반 리스크 안내
+4. 회원 가입 및 관리
+5. 위치 기반 길찾기 및 주변 캠핑장 안내
 
-1. 처리하는 정보와 목적
-운영자는 소셜 로그인 과정에서 이메일 주소, 이름 또는 표시 이름, 로그인 제공자의 사용자 식별자를 처리합니다. 이는 회원 식별, 로그인 유지, 계정 관리에 사용됩니다.
+제2조 (처리하는 개인정보 항목)
+회원가입(OAuth): OAuth 제공자(Apple, Google, Kakao)로부터 전달받는 이메일, 고유식별자(OAuth ID) 및 제공자가 제공에 동의한 최소한의 프로필 정보. 비밀번호는 자체적으로 수집·저장하지 않습니다(OAuth 제공자가 인증을 담당).
 
-현재 위치는 이용자가 길찾기 또는 주변 정보 기능을 직접 요청하고 권한을 허용한 경우에만 사용합니다. 위치는 거리·이동 경로·주변 캠핑장 및 날씨 정보를 제공하는 데 사용하며, 백그라운드 위치를 수집하지 않습니다.
+서비스 이용(필수): 캠핑 날짜, 희망 지역, 인원 수, 차량 보유 여부, 캠핑 숙련도, 보유 장비, 가족 동반 여부, 선호 조건(전기 사용, 샤워실, 화장실 청결도, 아이 동반 등) — 개인 맞춤형 추천 기능 제공을 위한 필수 입력값입니다.
 
-인원, 차량 이용 여부, 경험 수준, 희망 지역, 선호 조건, 보유 장비, 플래너에 입력한 문장과 커뮤니티 게시글은 추천, 캠핑 플랜·체크리스트 생성 및 커뮤니티 제공을 위해 처리합니다.
+위치정보(선택): 이용자가 길찾기 또는 주변 정보 기능을 직접 요청하고 위치 권한을 허용한 경우에만 수집합니다. 거리·이동 경로·주변 캠핑장 및 날씨 정보 제공에 사용하며, 백그라운드 위치는 수집하지 않습니다.
 
-2. 기기 저장 정보
-로그인 토큰은 기기의 보안 저장소에, 즐겨찾기 캠핑장과 일부 앱 설정은 기기에 저장됩니다. 즐겨찾기와 설정은 다른 이용자에게 공개되지 않으며 앱을 삭제하면 기기에서 삭제됩니다.
+커뮤니티 게시글(선택): 게시글 작성 시 입력하는 제목과 본문.
 
-3. 외부 처리자와 제공 정보
-운영자는 서비스 제공을 위해 다음 외부 서비스를 사용합니다. 광고 목적의 추적이나 제3자 광고 식별자 결합은 하지 않습니다.
+참고: OAuth 제공자가 자체적으로 수집하는 정보는 각 제공자의 개인정보처리방침이 적용되며, 본 서비스는 인증 과정에서 제공자로부터 전달받는 최소한의 정보만 처리합니다. AI 플랜 요청에는 이메일과 이름을 포함하지 않으며, 이용자가 질문이나 게시글에 개인정보를 직접 입력하지 않도록 유의해야 합니다.
 
-· CampOn API 서버: 로그인, 계정, 캠핑장 추천·길찾기, 커뮤니티 게시글 처리
-· Apple, Google, Kakao: 이용자가 선택한 소셜 로그인 인증
-· Microsoft Azure: AI 프록시 서버 운영
-· Google Gemini API: 플랜 또는 밤 풍경 생성에 필요한 캠핑 조건, 질문 문장, 캠핑장 후보 및 좌표 처리
-· Open-Meteo: 캠핑장 좌표에 따른 날씨 조회
-· Kakao Map: 지도 표시를 위한 캠핑장 위치 정보 처리
+제3조 (기기에 저장하는 정보)
+로그인 토큰은 iOS Keychain 또는 Android 보안 저장소에 저장합니다. 즐겨찾기 캠핑장과 일부 앱 설정은 기기에 저장되며 다른 이용자에게 공개되지 않습니다. 앱을 삭제하면 기기에 저장된 정보도 함께 삭제됩니다.
 
-AI 플랜 요청에는 이메일과 이름을 포함하지 않습니다. 다만 이용자가 질문이나 게시글에 개인정보를 직접 입력하지 않도록 유의해 주세요.
+제4조 (개인정보의 처리 및 보유 기간)
+서비스 이용 목적 달성 시 또는 회원 탈퇴 시까지 보유하며, 이후 지체 없이 파기합니다.
 
-4. 보유 기간과 파기
-계정 관련 정보는 회원 탈퇴 시 또는 처리 목적 달성 시 삭제를 요청합니다. 법령상 보관 의무가 있는 정보는 해당 기간 동안 보관할 수 있습니다. 전자 파일은 복구하기 어려운 방식으로 삭제합니다. 서버 로그·백업의 보관 기간은 보안과 장애 대응을 위해 필요한 최소 범위로 운영합니다.
+제5조 (개인정보 처리업무의 위탁)
+CAMPON은 서비스 제공을 위해 다음과 같이 처리업무를 위탁하고 있습니다.
 
-5. 이용자의 권리
-이용자는 개인정보의 열람, 정정, 삭제, 처리 정지를 요청할 수 있습니다. 회원 탈퇴는 앱 설정의 “회원 탈퇴”에서 할 수 있으며, 위치 권한은 기기 설정에서 철회할 수 있습니다. 요청 또는 문의는 $contactEmail 로 보내주시면 확인 후 처리합니다.
+· 수탁자: Google LLC (Gemini API) / 위탁 업무 내용: 사용자 입력값 정규화, 캠핑 준비 가이드 텍스트 생성 / 보유·이용 기간: 위탁 업무 수행 목적 달성 시까지(수탁자 정책에 따름)
+· 수탁자: Microsoft Azure / 위탁 업무 내용: AI 프록시 서버 운영 / 보유·이용 기간: 위탁 업무 수행 목적 달성 시까지(수탁자 정책에 따름)
+· 수탁자: Kakao(카카오맵) / 위탁 업무 내용: 캠핑장 위치 정보 지도 표시 / 보유·이용 기간: 위탁 업무 수행 목적 달성 시까지(수탁자 정책에 따름)
+· 수탁자: Open-Meteo / 위탁 업무 내용: 캠핑장 좌표 기반 날씨 조회 / 보유·이용 기간: 위탁 업무 수행 목적 달성 시까지(수탁자 정책에 따름)
 
-6. 안전성 확보 조치
-앱과 서버 간 통신은 HTTPS로 암호화하며, 인증 토큰은 기기의 보안 저장소에 보관합니다. 운영자는 개인정보 접근 권한을 필요한 담당자로 제한하고, 서비스 제공에 필요한 범위에서만 처리합니다.
+제6조 (개인정보의 국외 이전)
+CAMPON은 Gemini API(Google LLC) 및 Azure(Microsoft) 이용을 위해 다음과 같이 개인정보를 국외로 이전합니다.
 
-7. 아동의 개인정보
-서비스는 만 14세 미만 아동을 대상으로 하지 않으며, 해당 아동의 개인정보를 의도적으로 수집하지 않습니다. 이 사실을 알게 되면 관련 정보를 삭제하기 위해 조치합니다.
+· 이전받는 자: Google LLC, Microsoft Corporation
+· 이전되는 국가: 미국 등 각 사 또는 그 대리인이 시설을 운영하는 국가(각 사가 특정 국가를 보장하지 않음)
+· 이전 일시 및 방법: 서비스 이용 시 네트워크를 통한 실시간 API 전송
+· 이전 항목: 캠핑 날짜, 지역, 인원 수, 차량 보유 여부, 숙련도, 보유 장비, 선호 조건 등 추천에 필요한 입력값(OAuth 이메일 등 식별정보는 전송하지 않음)
+· 이전받는 자의 이용 목적 및 보유·이용 기간: AI 응답 생성 및 서버 운영 목적으로만 처리하며, 유료 서비스 기준 각 사는 정책 위반 감지 등 제한된 목적으로 일정 기간만 기록한 후 파기합니다.
 
-8. 처리방침의 변경
-이 처리방침이 변경되면 시행일과 변경 내용을 앱 또는 공개된 처리방침 페이지에 알립니다. 이용자 권리에 중요한 영향을 주는 변경은 충분한 사전 기간을 두고 안내합니다.
+제7조 (개인정보의 제3자 제공)
+원칙적으로 개인정보를 제3자에게 제공하지 않으며, 제공이 필요한 경우 별도 동의를 받습니다. 제5조·제6조의 위탁·국외이전은 제3자 제공이 아닌 처리위탁에 해당합니다.
+
+제8조 (개인정보의 파기절차 및 방법)
+보유기간 경과 또는 처리목적 달성 후 별도의 DB로 옮겨 내부 방침에 따라 일정 기간 저장한 후 파기하거나 즉시 파기합니다. 전자적 파일 형태로 저장된 개인정보는 기록을 재생할 수 없는 기술적 방법으로 삭제합니다.
+
+제9조 (자동수집장치의 설치·운영 및 거부)
+CAMPON은 서비스 이용 과정에서 접속 IP, 접속 일시, 서비스 이용 기록 등을 자동으로 수집할 수 있습니다.
+
+제10조 (정보주체의 권리·의무 및 행사방법)
+이용자는 언제든지 개인정보의 열람·정정·삭제·처리정지를 요구할 수 있습니다. 요청은 제13조의 개인정보 보호책임자 연락처로 전화 또는 이메일을 통해 하실 수 있으며, 접수 후 지체 없이(10일 이내) 처리합니다. 회원 탈퇴는 앱 설정의 "회원 탈퇴"에서 할 수 있고, 위치 권한은 기기 설정에서 철회할 수 있습니다.
+
+제11조 (개인정보의 안전성 확보조치)
+CAMPON은 개인정보 보호를 위해 다음과 같은 조치를 취하고 있습니다.
+
+· 관리적 조치: 개인정보 처리 담당자 최소화 및 책임자 지정
+· 기술적 조치: 접근권한 관리, 서버 방화벽 설정, 앱-서버 간 HTTPS 암호화 통신
+· 물리적 조치: 개인정보가 저장된 서버(자체 운영 서버)에 대한 접근 통제
+
+제12조 (아동의 개인정보)
+서비스는 만 14세 미만 아동을 대상으로 하지 않으며, 해당 아동의 개인정보를 의도적으로 수집하지 않습니다. 수집 사실을 알게 되면 관련 정보를 삭제하기 위해 조치합니다.
+
+제13조 (개인정보 보호책임자)
+성명: 서하민
+연락처: 010-4864-1548
+이메일: shm040806@gmail.com
+
+제14조 (개인정보처리방침의 변경)
+이 개인정보처리방침은 2026년 09월 01일부터 적용됩니다. 내용의 추가·삭제 및 변경이 있는 경우 시행 최소 7일 전에 공지합니다.
 ''';
 }
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     required this.api,
-    required this.region,
-    required this.people,
-    required this.hasCar,
     required this.preTripAlerts,
-    required this.equipmentCount,
     required this.onAlertChanged,
-    required this.onResetPreferences,
     required this.onSignOut,
     required this.onDeleteAccount,
     super.key,
   });
 
   final CampOnApi api;
-  final CampRegion region;
-  final int people;
-  final bool? hasCar;
   final bool preTripAlerts;
-  final int equipmentCount;
   final ValueChanged<bool> onAlertChanged;
-  final VoidCallback onResetPreferences;
   final VoidCallback onSignOut;
   final Future<void> Function() onDeleteAccount;
 
   @override
   Widget build(BuildContext context) {
-    final mobility = switch (hasCar) {
-      true => '차량 이동',
-      false => '대중교통 이동',
-      null => '미설정',
-    };
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: [
         Text('설정', style: CampText.displaySmall),
         const SizedBox(height: 6),
         Text(
-          '계정과 추천 조건을 확인하고 앱 동작을 관리합니다.',
+          '계정을 확인하고 앱 동작을 관리합니다.',
           style: CampText.caption.copyWith(color: CampColors.inkMuted80),
         ),
         const SizedBox(height: 20),
@@ -4072,66 +5582,39 @@ class SettingsScreen extends StatelessWidget {
             children: [
               Text('계정', style: CampText.sectionTitle),
               const SizedBox(height: 14),
-              SettingsRow(
-                icon: LucideIcons.shieldCheck,
-                title: '로그인 상태',
-                value: '활성',
-                badge: true,
-                valueColor: CampColors.forestMid,
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          api.displayName?.isNotEmpty ?? false
+                              ? api.displayName!
+                              : '캠퍼님',
+                          style: CampText.bodyStrong,
+                        ),
+                        if (api.email?.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            api.email!,
+                            style: CampText.caption.copyWith(
+                              color: CampColors.inkMuted80,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SettingsIcon(icon: LucideIcons.shieldCheck, size: 34),
+                ],
               ),
               const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: CampButton.secondary(
-                  label: '로그아웃',
-                  onPressed: onSignOut,
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: DeleteAccountButton(onDelete: onDeleteAccount),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        CampCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('추천 조건', style: CampText.sectionTitle),
-              const SizedBox(height: 14),
-              SettingsRow(
-                icon: LucideIcons.mapPin,
-                title: '기준 지역',
-                value: region.name,
-              ),
-              const SizedBox(height: 14),
-              SettingsRow(
-                icon: LucideIcons.users,
-                title: '인원',
-                value: '$people명',
-              ),
-              const SizedBox(height: 14),
-              SettingsRow(
-                icon: LucideIcons.car,
-                title: '이동수단',
-                value: mobility,
-              ),
-              const SizedBox(height: 14),
-              SettingsRow(
-                icon: Icons.backpack_outlined,
-                title: '보유 장비',
-                value: '$equipmentCount개',
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: CampButton.secondary(
-                  label: '조건 초기화',
-                  onPressed: onResetPreferences,
-                ),
+              SettingsLinkRow(
+                title: '로그아웃',
+                showChevron: false,
+                onTap: onSignOut,
               ),
             ],
           ),
@@ -4157,18 +5640,9 @@ class SettingsScreen extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.block,
-                        size: 18,
-                        color: CampColors.inkMuted80,
-                      ),
+                      Icon(Icons.block, size: 18, color: CampColors.inkMuted80),
                       const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '차단 관리',
-                          style: CampText.body,
-                        ),
-                      ),
+                      Expanded(child: Text('차단 관리', style: CampText.body)),
                       Icon(
                         Icons.chevron_right,
                         size: 18,
@@ -4182,43 +5656,30 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        Builder(
-          builder: (context) {
-            final scope = CampThemeScope.of(context);
-            return ToggleSettingCard(
-              icon: LucideIcons.moon,
-              title: '야간 캠핑 테마',
-              subtitle: '어두운 곳에서도 편안하게',
-              value: scope.isDark,
-              onChanged: (_) => scope.toggle(),
-            );
-          },
-        ),
-        const SizedBox(height: 14),
         CampCard(
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(LucideIcons.bell, size: 18, color: CampColors.forestMid),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('준비 알림', style: CampText.bodyStrong),
-                    const SizedBox(height: 2),
-                    Text(
-                      '캠핑 준비 흐름 알림 유지',
-                      style: CampText.caption.copyWith(
-                        color: CampColors.inkMuted80,
-                      ),
-                    ),
-                  ],
-                ),
+              Text('앱 환경', style: CampText.sectionTitle),
+              const SizedBox(height: 14),
+              Builder(
+                builder: (context) {
+                  final scope = CampThemeScope.of(context);
+                  return ToggleSettingRow(
+                    icon: LucideIcons.moon,
+                    title: '야간 캠핑 테마',
+                    subtitle: '어두운 곳에서도 편안하게',
+                    value: scope.isDark,
+                    onChanged: (_) => scope.toggle(),
+                  );
+                },
               ),
-              Switch.adaptive(
+              const SizedBox(height: 14),
+              ToggleSettingRow(
+                icon: LucideIcons.bell,
+                title: '준비 알림',
+                subtitle: '캠핑 준비 흐름 알림 유지',
                 value: preTripAlerts,
-                activeThumbColor: CampColors.onPrimary,
-                activeTrackColor: CampColors.forestMid,
                 onChanged: onAlertChanged,
               ),
             ],
@@ -4229,28 +5690,48 @@ class SettingsScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // API 호스트는 사용자에게 의미가 없으므로 디버그 빌드에서만 보여준다.
-              if (kDebugMode) ...[
-                SettingsRow(
-                  icon: Icons.dns_outlined,
-                  title: 'API 서버',
-                  value: CampOnApi.publicHost,
-                ),
-                const SizedBox(height: 14),
-              ],
-              AppVersionRow(),
-              const SizedBox(height: 16),
-              Text('법적 고지', style: CampText.sectionTitle),
-              const SizedBox(height: 8),
-              Text(
-                '이용약관과 개인정보 처리방침을 확인할 수 있어요.',
-                style: CampText.caption.copyWith(color: CampColors.inkMuted80),
+              Text('지원', style: CampText.sectionTitle),
+              const SizedBox(height: 10),
+              SettingsLinkRow(
+                title: '문의하기',
+                onTap: () async {
+                  final opened = await LegalConfig.open(
+                    'mailto:${LegalConfig.contactEmail}',
+                  );
+                  if (!opened && context.mounted) {
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        const SnackBar(content: Text('메일 앱을 열지 못했습니다.')),
+                      );
+                  }
+                },
               ),
-              const SizedBox(height: 8),
-              LegalLinkRow(color: CampColors.inkMuted80),
+              const SizedBox(height: 14),
+              SettingsLinkRow(
+                title: '이용약관',
+                onTap: () => LegalConfig.openDocument(
+                  context,
+                  LegalConfig.termsOfServiceUrl,
+                  LegalDocument.terms,
+                ),
+              ),
+              const SizedBox(height: 14),
+              SettingsLinkRow(
+                title: '개인정보처리방침',
+                onTap: () => LegalConfig.openDocument(
+                  context,
+                  LegalConfig.privacyPolicyUrl,
+                  LegalDocument.privacy,
+                ),
+              ),
+              const SizedBox(height: 16),
+              AppVersionRow(),
             ],
           ),
         ),
+        const SizedBox(height: 28),
+        Center(child: DeleteAccountButton(onDelete: onDeleteAccount)),
       ],
     );
   }
@@ -4308,11 +5789,11 @@ class _DeleteAccountButtonState extends State<DeleteAccountButton> {
 
   @override
   Widget build(BuildContext context) {
-    return CampButton.secondary(
-      label: _deleting ? '탈퇴 처리 중…' : '회원 탈퇴',
-      foreground: _danger,
-      borderColor: _danger,
-      onPressed: _deleting ? null : _confirmAndDelete,
+    return SettingsLinkRow(
+      title: _deleting ? '탈퇴 처리 중…' : '회원 탈퇴',
+      color: _danger,
+      showChevron: false,
+      onTap: _deleting ? null : _confirmAndDelete,
     );
   }
 }
@@ -4355,6 +5836,45 @@ class SettingsRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 지원 섹션의 탭 가능한 링크 행.
+class SettingsLinkRow extends StatelessWidget {
+  const SettingsLinkRow({
+    required this.title,
+    required this.onTap,
+    this.color,
+    this.showChevron = true,
+    super.key,
+  });
+
+  final String title;
+  final VoidCallback? onTap;
+  final Color? color;
+  final bool showChevron;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: CampText.body.copyWith(fontSize: 14.5, color: color),
+              ),
+            ),
+            if (showChevron)
+              Icon(Icons.chevron_right, size: 18, color: CampColors.inkMuted48),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -4580,8 +6100,8 @@ class _TutorialCard extends StatelessWidget {
 }
 
 /// 설정의 토글 카드. 카드 전체를 눌러도 값이 바뀐다.
-class ToggleSettingCard extends StatelessWidget {
-  const ToggleSettingCard({
+class ToggleSettingRow extends StatelessWidget {
+  const ToggleSettingRow({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -4600,35 +6120,33 @@ class ToggleSettingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () => onChanged(!value),
-      borderRadius: BorderRadius.circular(18),
-      child: CampCard(
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: CampColors.ink),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: CampText.bodyStrong),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: CampText.caption.copyWith(
-                      color: CampColors.inkMuted80,
-                    ),
+      borderRadius: BorderRadius.circular(8),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: CampColors.ink),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: CampText.bodyStrong),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: CampText.caption.copyWith(
+                    color: CampColors.inkMuted80,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Switch.adaptive(
-              value: value,
-              activeThumbColor: CampColors.onPrimary,
-              activeTrackColor: CampColors.forestMid,
-              onChanged: onChanged,
-            ),
-          ],
-        ),
+          ),
+          Switch.adaptive(
+            value: value,
+            activeThumbColor: CampColors.onPrimary,
+            activeTrackColor: CampColors.forestMid,
+            onChanged: onChanged,
+          ),
+        ],
       ),
     );
   }
@@ -4826,7 +6344,11 @@ class RegionPicker extends StatelessWidget {
           const Positioned.fill(
             child: ClipRRect(
               borderRadius: BorderRadius.all(Radius.circular(18)),
-              child: CustomPaint(painter: _RegionTerrainPainter()),
+              child: Image(
+                key: Key('recommendation-region-map-image'),
+                image: AssetImage('assets/images/recommendation_map.png'),
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           for (final region in CampData.regions)
@@ -4843,46 +6365,6 @@ class RegionPicker extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 지역 지도의 라인아트 지형. 디자인 SVG(360×230 viewBox)의 좌표를 그대로 쓴다.
-class _RegionTerrainPainter extends CustomPainter {
-  const _RegionTerrainPainter();
-
-  static const _ridges = <(List<(double, double)>, Color)>[
-    ([(0, 230), (70, 110), (140, 230)], Color(0x222C4A38)),
-    ([(90, 230), (180, 70), (260, 230)], Color(0x302C4A38)),
-    ([(220, 230), (300, 100), (360, 230)], Color(0x222C4A38)),
-  ];
-
-  static const _dots = <(double, double, double)>[
-    (40, 30, 2),
-    (90, 18, 1.5),
-    (300, 24, 2),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scaleX = size.width / 360;
-    final scaleY = size.height / 230;
-    Offset at(double x, double y) => Offset(x * scaleX, y * scaleY);
-
-    for (final (points, color) in _ridges) {
-      canvas.drawPath(
-        Path()..addPolygon([for (final (x, y) in points) at(x, y)], true),
-        Paint()..color = color,
-      );
-    }
-
-    final dotPaint = Paint()
-      ..color = CampColors.primaryDark.withValues(alpha: 0.5);
-    for (final (x, y, radius) in _dots) {
-      canvas.drawCircle(at(x, y), radius, dotPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RegionTerrainPainter oldDelegate) => false;
 }
 
 class RegionPin extends StatelessWidget {
@@ -5022,8 +6504,10 @@ class CampsiteCard extends StatelessWidget {
         : (showDistance && site.distance > 0
               ? _formatDistance(site.distance)
               : null);
+    // 거리는 위 배지 하나로만 보여준다. 캡션에 우편번호·거리를 또 넣으면
+    // 같은 정보가 두 번 반복되므로, showDistance일 때는 캡션을 비운다.
     final captionText = showDistance
-        ? site.caption
+        ? null
         : (site.zipcode.isNotEmpty ? '우편번호 ${site.zipcode}' : '캠핑장');
 
     return InkWell(
@@ -5040,7 +6524,7 @@ class CampsiteCard extends StatelessWidget {
                 width: 84,
                 height: 84,
                 child: site.validThumbnailUrl == null
-                    ? CampImagePlaceholder()
+                    ? CampsiteCoverImage(site: site)
                     : Image.network(
                         site.validThumbnailUrl!,
                         fit: BoxFit.cover,
@@ -5077,14 +6561,16 @@ class CampsiteCard extends StatelessWidget {
                       ],
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    captionText,
-                    style: CampText.caption.copyWith(
-                      fontSize: 12.5,
-                      color: CampColors.inkMuted80,
+                  if (captionText != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      captionText,
+                      style: CampText.caption.copyWith(
+                        fontSize: 12.5,
+                        color: CampColors.inkMuted80,
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 6,
@@ -5121,26 +6607,281 @@ class CampsiteCard extends StatelessWidget {
   }
 }
 
-class CampsiteHeroImage extends StatelessWidget {
-  const CampsiteHeroImage({required this.site, super.key});
+class CampsiteHeroImage extends StatefulWidget {
+  const CampsiteHeroImage({
+    required this.site,
+    this.region,
+    this.imageService,
+    this.aspectRatio = 16 / 9,
+    this.borderRadius = const BorderRadius.all(Radius.circular(18)),
+    this.attributionBottom = 8,
+    super.key,
+  });
 
   final Campsite site;
+  final String? region;
+  final CampsiteImageService? imageService;
+  final double aspectRatio;
+  final BorderRadiusGeometry borderRadius;
+  final double attributionBottom;
+
+  @override
+  State<CampsiteHeroImage> createState() => _CampsiteHeroImageState();
+}
+
+class _CampsiteHeroImageState extends State<CampsiteHeroImage> {
+  final _controller = PageController();
+  int _page = 0;
+  Future<List<CampsiteSearchImage>>? _fallbackImages;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFallbackIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(CampsiteHeroImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.site.id != widget.site.id ||
+        oldWidget.region != widget.region ||
+        oldWidget.imageService != widget.imageService) {
+      _page = 0;
+      _loadFallbackIfNeeded();
+    }
+  }
+
+  void _loadFallbackIfNeeded() {
+    _fallbackImages =
+        widget.site.validImageUrls.isEmpty &&
+            widget.site.validThumbnailUrl == null
+        ? (widget.imageService ?? CampsiteImageService.shared).search(
+            name: widget.site.name,
+            region: widget.region,
+          )
+        : null;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final url = site.validThumbnailUrl;
+    final originalImages = widget.site.validImageUrls.isNotEmpty
+        ? widget.site.validImageUrls
+        : [
+            if (widget.site.validThumbnailUrl != null)
+              widget.site.validThumbnailUrl!,
+          ];
+
+    if (originalImages.isNotEmpty) {
+      return _buildImagePager(originalImages, const []);
+    }
+    return FutureBuilder<List<CampsiteSearchImage>>(
+      future: _fallbackImages,
+      builder: (context, snapshot) {
+        final fallback = snapshot.data ?? const <CampsiteSearchImage>[];
+        return _buildImagePager(
+          fallback.map((image) => image.imageUrl).toList(growable: false),
+          fallback,
+        );
+      },
+    );
+  }
+
+  Widget _buildImagePager(
+    List<String> images,
+    List<CampsiteSearchImage> fallback,
+  ) {
     return AspectRatio(
-      aspectRatio: 16 / 9,
+      aspectRatio: widget.aspectRatio,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: url == null
+        borderRadius: widget.borderRadius,
+        child: images.isEmpty
             ? CampImagePlaceholder()
-            : Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    CampImagePlaceholder(),
+            : Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  PageView.builder(
+                    controller: _controller,
+                    itemCount: images.length,
+                    onPageChanged: (page) => setState(() => _page = page),
+                    itemBuilder: (context, index) => Image.network(
+                      images[index],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          CampImagePlaceholder(),
+                    ),
+                  ),
+                  if (images.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (var i = 0; i < images.length; i++)
+                            Container(
+                              width: 6,
+                              height: 6,
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withValues(
+                                  alpha: i == _page ? 1 : 0.5,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (fallback.isNotEmpty)
+                    Positioned(
+                      left: 10,
+                      bottom: widget.attributionBottom,
+                      child: TextButton(
+                        onPressed: () => LegalConfig.open(
+                          fallback[_page.clamp(0, fallback.length - 1)]
+                              .sourceUrl,
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: const Color(0x99000000),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('NAVER 검색 이미지 · 원본'),
+                      ),
+                    ),
+                ],
               ),
+      ),
+    );
+  }
+}
+
+class CampsiteCoverImage extends StatefulWidget {
+  const CampsiteCoverImage({required this.site, this.imageService, super.key});
+
+  final Campsite site;
+  final CampsiteImageService? imageService;
+
+  @override
+  State<CampsiteCoverImage> createState() => _CampsiteCoverImageState();
+}
+
+class _CampsiteCoverImageState extends State<CampsiteCoverImage> {
+  Future<List<CampsiteSearchImage>>? _images;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(CampsiteCoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.site.id != widget.site.id ||
+        oldWidget.imageService != widget.imageService) {
+      _load();
+    }
+  }
+
+  void _load() {
+    _images = (widget.imageService ?? CampsiteImageService.shared).search(
+      name: widget.site.name,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<CampsiteSearchImage>>(
+      future: _images,
+      builder: (context, snapshot) {
+        final images = snapshot.data;
+        final image = images == null || images.isEmpty ? null : images.first;
+        if (image == null) return CampImagePlaceholder();
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              image.thumbnailUrl.isNotEmpty
+                  ? image.thumbnailUrl
+                  : image.imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) =>
+                  CampImagePlaceholder(),
+            ),
+            Positioned(
+              left: 5,
+              bottom: 5,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0x99000000),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  child: Text(
+                    'NAVER',
+                    style: TextStyle(color: Colors.white, fontSize: 9),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 캠핑장 상세 상단의 점수 뱃지.
+class ScoreBadge extends StatelessWidget {
+  const ScoreBadge({required this.label, super.key});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: CampColors.amberTint,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: CampText.captionStrong.copyWith(color: CampColors.primaryDark),
+      ),
+    );
+  }
+}
+
+/// 이용 팁의 대여 장비 태그.
+class TipTag extends StatelessWidget {
+  const TipTag({required this.label, super.key});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: CampColors.greenTint,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: CampText.captionStrong.copyWith(color: CampColors.forestMid),
       ),
     );
   }
@@ -5536,9 +7277,14 @@ class ProgressSegments extends StatelessWidget {
 }
 
 class BackCircleButton extends StatelessWidget {
-  const BackCircleButton({required this.onPressed, super.key});
+  const BackCircleButton({
+    required this.onPressed,
+    this.onImage = false,
+    super.key,
+  });
 
   final VoidCallback onPressed;
+  final bool onImage;
 
   @override
   Widget build(BuildContext context) {
@@ -5550,10 +7296,17 @@ class BackCircleButton extends StatelessWidget {
         fixedSize: const Size(36, 36),
         minimumSize: const Size(36, 36),
         padding: EdgeInsets.zero,
-        foregroundColor: CampColors.ink,
+        foregroundColor: onImage ? Colors.white : CampColors.ink,
+        backgroundColor: onImage
+            ? Colors.black.withValues(alpha: 0.28)
+            : Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(999),
-          side: BorderSide(color: CampColors.hairline),
+          side: BorderSide(
+            color: onImage
+                ? Colors.white.withValues(alpha: 0.65)
+                : CampColors.hairline,
+          ),
         ),
       ),
     );
@@ -5565,11 +7318,13 @@ class FavoriteHeartButton extends StatelessWidget {
   const FavoriteHeartButton({
     required this.isFavorite,
     required this.onPressed,
+    this.onImage = false,
     super.key,
   });
 
   final bool isFavorite;
   final VoidCallback onPressed;
+  final bool onImage;
 
   @override
   Widget build(BuildContext context) {
@@ -5581,10 +7336,19 @@ class FavoriteHeartButton extends StatelessWidget {
         fixedSize: const Size(36, 36),
         minimumSize: const Size(36, 36),
         padding: EdgeInsets.zero,
-        foregroundColor: isFavorite ? CampColors.primary : CampColors.ink,
+        foregroundColor: isFavorite
+            ? CampColors.primary
+            : (onImage ? Colors.white : CampColors.ink),
+        backgroundColor: onImage
+            ? Colors.black.withValues(alpha: 0.28)
+            : Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(999),
-          side: BorderSide(color: CampColors.hairline),
+          side: BorderSide(
+            color: onImage
+                ? Colors.white.withValues(alpha: 0.65)
+                : CampColors.hairline,
+          ),
         ),
       ),
     );
@@ -5790,6 +7554,8 @@ class AuthSession {
     required this.tokenType,
     required this.expiresAt,
     this.provider,
+    this.displayName,
+    this.email,
   });
 
   final String accessToken;
@@ -5797,6 +7563,8 @@ class AuthSession {
   final String tokenType;
   final DateTime expiresAt;
   final AuthProvider? provider;
+  final String? displayName;
+  final String? email;
 }
 
 abstract interface class AuthSessionStore {
@@ -5818,6 +7586,8 @@ class SecureAuthSessionStore implements AuthSessionStore {
   static const _tokenTypeKey = 'campon.auth.tokenType';
   static const _expiresAtKey = 'campon.auth.expiresAt';
   static const _providerKey = 'campon.auth.provider';
+  static const _displayNameKey = 'campon.auth.displayName';
+  static const _emailKey = 'campon.auth.email';
 
   final FlutterSecureStorage _storage;
 
@@ -5838,6 +7608,8 @@ class SecureAuthSessionStore implements AuthSessionStore {
       tokenType: values[_tokenTypeKey] ?? 'Bearer',
       expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAtMilliseconds),
       provider: AuthProvider.fromStorageValue(values[_providerKey]),
+      displayName: values[_displayNameKey],
+      email: values[_emailKey],
     );
   }
 
@@ -5858,6 +7630,16 @@ class SecureAuthSessionStore implements AuthSessionStore {
         value: session.provider!.storageValue,
       );
     }
+    if (session.displayName == null || session.displayName!.isEmpty) {
+      await _storage.delete(key: _displayNameKey);
+    } else {
+      await _storage.write(key: _displayNameKey, value: session.displayName);
+    }
+    if (session.email == null || session.email!.isEmpty) {
+      await _storage.delete(key: _emailKey);
+    } else {
+      await _storage.write(key: _emailKey, value: session.email);
+    }
   }
 
   @override
@@ -5868,6 +7650,8 @@ class SecureAuthSessionStore implements AuthSessionStore {
       _storage.delete(key: _tokenTypeKey),
       _storage.delete(key: _expiresAtKey),
       _storage.delete(key: _providerKey),
+      _storage.delete(key: _displayNameKey),
+      _storage.delete(key: _emailKey),
     ]);
   }
 }
@@ -5919,12 +7703,19 @@ class CampOnApi {
   String _tokenType = 'Bearer';
   DateTime? _accessTokenExpiresAt;
   AuthProvider? _provider;
+  String? _displayName;
+  String? _email;
   Future<void>? _googleInitializeFuture;
   Future<void>? _refreshFuture;
   VoidCallback? onSessionInvalidated;
 
   /// 로그인한 유저의 ID. 서버가 따로 알려주지 않아서 액세스 토큰에서 읽는다.
   int? get currentUserId => userIdFromAccessToken(_accessToken);
+
+  /// 로그인 시점에 제공자로부터 받아 기기에 캐시해 둔 표시 이름. 서버는 별도의
+  /// 내 프로필 조회 API가 없어 로그인 응답 대신 이 값을 화면에 사용한다.
+  String? get displayName => _displayName;
+  String? get email => _email;
 
   Future<bool> restoreSession() async {
     try {
@@ -5963,6 +7754,7 @@ class CampOnApi {
         }),
       ),
       provider: null,
+      displayName: '개발 계정',
     );
   }
 
@@ -5972,6 +7764,8 @@ class CampOnApi {
     _tokenType = 'Bearer';
     _accessTokenExpiresAt = null;
     _provider = null;
+    _displayName = null;
+    _email = null;
     await _sessionStore.clear();
     if (notify) {
       onSessionInvalidated?.call();
@@ -6001,6 +7795,7 @@ class CampOnApi {
     required AuthProvider provider,
     required String credential,
     required String name,
+    String? email,
   }) async {
     await _setSessionFrom(
       _requestJwt(
@@ -6009,6 +7804,8 @@ class CampOnApi {
         body: provider.authRequestBody(credential: credential, name: name),
       ),
       provider: provider,
+      displayName: name,
+      email: email,
     );
   }
 
@@ -6063,6 +7860,7 @@ class CampOnApi {
       provider: AuthProvider.google,
       credential: code,
       name: account.displayName ?? account.email,
+      email: account.email,
     );
   }
 
@@ -6105,6 +7903,7 @@ class CampOnApi {
       provider: AuthProvider.apple,
       credential: credential.authorizationCode,
       name: name.isNotEmpty ? name : credential.email ?? 'Apple User',
+      email: credential.email,
     );
   }
 
@@ -6156,40 +7955,91 @@ class CampOnApi {
       '${AuthProvider.kakao.credentialField}=카카오 access token',
     );
 
+    // 카카오 로그인 토큰만으로는 닉네임/이메일을 알 수 없어 프로필을 한 번 더
+    // 조회한다. 사용자가 관련 동의를 하지 않았다면 조용히 기본값으로 넘어간다.
+    var kakaoName = 'Kakao User';
+    String? kakaoEmail;
+    try {
+      final profile = await UserApi.instance.me();
+      final nickname = profile.kakaoAccount?.profile?.nickname;
+      if (nickname != null && nickname.isNotEmpty) {
+        kakaoName = nickname;
+      }
+      kakaoEmail = profile.kakaoAccount?.email;
+    } catch (error) {
+      debugPrint('[Kakao] 프로필 조회 실패, 기본값으로 진행: $error');
+    }
+
     await signInWithOAuth(
       provider: AuthProvider.kakao,
       credential: token.accessToken,
-      name: 'Kakao User',
+      name: kakaoName,
+      email: kakaoEmail,
     );
   }
+
+  /// `/api/v1/campsites/nearby`의 쿼리 파라미터. 네트워크 없이 검증할 수 있게 분리해 둔다.
+  static Map<String, String> nearbyQuery({
+    required double lat,
+    required double lon,
+    required int radius,
+    required int page,
+    required int size,
+  }) => <String, String>{
+    'lat': lat.toString(),
+    'lon': lon.toString(),
+    'radius': '$radius',
+    'size': '$size',
+    'page': '$page',
+  };
 
   Future<List<Campsite>> fetchNearby({
     required CampRegion region,
     required int page,
     required int size,
   }) {
-    final uri = _buildUri('/api/v1/campsites/nearby', <String, String>{
-      'lat': region.lat.toString(),
-      'lon': region.lon.toString(),
-      'radius': '10000',
-      'size': '$size',
-      'page': '$page',
-    });
+    final uri = _buildUri(
+      '/api/v1/campsites/nearby',
+      nearbyQuery(
+        lat: region.lat,
+        lon: region.lon,
+        radius: 10000,
+        page: page,
+        size: size,
+      ),
+    );
     return _fetchCampsites(uri);
   }
+
+  /// 홈 추천의 단일 데이터 진입점. 현재는 주변 캠핑장 API의 첫 페이지를 쓴다.
+  Future<List<Campsite>> fetchWeeklyRecommendations({
+    required CampRegion region,
+    required int size,
+  }) => fetchNearby(region: region, page: 0, size: size);
 
   static const _regionAggregateRadius = 20000;
   static const _regionAggregatePageSize = 100;
 
   Future<List<Campsite>> fetchAllNearby({required CampRegion region}) {
+    return fetchAllNearbyAt(lat: region.lat, lon: region.lon);
+  }
+
+  /// 지도를 움직인 임의의 지점에서도 같은 방식으로 전량 조회한다.
+  Future<List<Campsite>> fetchAllNearbyAt({
+    required double lat,
+    required double lon,
+  }) {
     return aggregateAllPages<Campsite>((page) {
-      final uri = _buildUri('/api/v1/campsites/nearby', <String, String>{
-        'lat': region.lat.toString(),
-        'lon': region.lon.toString(),
-        'radius': '$_regionAggregateRadius',
-        'size': '$_regionAggregatePageSize',
-        'page': '$page',
-      });
+      final uri = _buildUri(
+        '/api/v1/campsites/nearby',
+        nearbyQuery(
+          lat: lat,
+          lon: lon,
+          radius: _regionAggregateRadius,
+          page: page,
+          size: _regionAggregatePageSize,
+        ),
+      );
       return _fetchCampsitesPage(uri);
     });
   }
@@ -6366,10 +8216,7 @@ class CampOnApi {
   // ──────────────────────────────────────────────
 
   /// 게시글 신고 POST /api/v1/posts/{postId}/reports
-  Future<void> reportPost({
-    required int postId,
-    required String reason,
-  }) async {
+  Future<void> reportPost({required int postId, required String reason}) async {
     await _authorizedRequest(
       _buildUri('/api/v1/posts/$postId/reports', const <String, String>{}),
       method: 'POST',
@@ -6612,6 +8459,8 @@ class CampOnApi {
   Future<void> _setSessionFrom(
     Future<Map<String, dynamic>> jwtFuture, {
     required AuthProvider? provider,
+    String? displayName,
+    String? email,
   }) async {
     final jwt = await jwtFuture;
     final accessToken = _asString(jwt['accessToken']);
@@ -6624,6 +8473,9 @@ class CampOnApi {
       tokenType: _asString(jwt['tokenType'], fallback: 'Bearer'),
       expiresAt: DateTime.now().add(Duration(seconds: _asInt(jwt['exprTime']))),
       provider: provider,
+      // 토큰 갱신처럼 새 값이 없는 호출에서는 이미 캐시된 이름/이메일을 유지한다.
+      displayName: displayName ?? _displayName,
+      email: email ?? _email,
     );
     await _sessionStore.write(session);
     _applySession(session);
@@ -6635,6 +8487,8 @@ class CampOnApi {
     _tokenType = session.tokenType;
     _accessTokenExpiresAt = session.expiresAt;
     _provider = session.provider;
+    _displayName = session.displayName;
+    _email = session.email;
   }
 
   Uri _buildUri(
@@ -6712,6 +8566,7 @@ class Campsite {
     required this.reservationUrl,
     required this.facility,
     required this.thumbnailUrl,
+    required this.imageUrls,
     required this.trailerAccompanyAt,
     required this.caravanAccompanyAt,
     required this.toiletCount,
@@ -6736,6 +8591,7 @@ class Campsite {
       reservationUrl: _asString(json['resveUrl']),
       facility: _asStringList(json['facility']),
       thumbnailUrl: _asString(json['thumbnailUrl']),
+      imageUrls: _asStringList(json['imageUrls']),
       trailerAccompanyAt: json['trailerAccompanyAt'] == true,
       caravanAccompanyAt: json['caravanAccompanyAt'] == true,
       toiletCount: _asInt(json['toiletCount']),
@@ -6744,6 +8600,30 @@ class Campsite {
       equipmentRental: _asStringList(json['equipmentRental']),
     );
   }
+
+  /// 서버가 준 거리(검색 지역 중심 기준)를 실제 사용자 위치 기준 거리로 바꿔치기한다.
+  Campsite copyWithDistance(int distance) => Campsite(
+    id: id,
+    score: score,
+    name: name,
+    lineIntro: lineIntro,
+    description: description,
+    lat: lat,
+    lon: lon,
+    distance: distance,
+    zipcode: zipcode,
+    tel: tel,
+    reservationUrl: reservationUrl,
+    facility: facility,
+    thumbnailUrl: thumbnailUrl,
+    imageUrls: imageUrls,
+    trailerAccompanyAt: trailerAccompanyAt,
+    caravanAccompanyAt: caravanAccompanyAt,
+    toiletCount: toiletCount,
+    showerRoomCount: showerRoomCount,
+    sinkCount: sinkCount,
+    equipmentRental: equipmentRental,
+  );
 
   /// 로컬 즐겨찾기 저장용. `fromJson`이 읽는 키와 이름을 정확히 맞춰
   /// 저장한 값을 그대로 되돌릴 수 있게 한다.
@@ -6762,6 +8642,7 @@ class Campsite {
     'resveUrl': reservationUrl,
     'facility': facility,
     'thumbnailUrl': thumbnailUrl,
+    'imageUrls': imageUrls,
     'trailerAccompanyAt': trailerAccompanyAt,
     'caravanAccompanyAt': caravanAccompanyAt,
     'toiletCount': toiletCount,
@@ -6783,6 +8664,7 @@ class Campsite {
   final String reservationUrl;
   final List<String> facility;
   final String thumbnailUrl;
+  final List<String> imageUrls;
   final bool trailerAccompanyAt;
   final bool caravanAccompanyAt;
   final int toiletCount;
@@ -6803,20 +8685,26 @@ class Campsite {
 
   String get scoreLabel => score == null ? '정보' : '$score점';
 
-  String get accessHint {
-    if (distance <= 0) {
-      return '위치 정보를 확인하고 있어요.';
+  Uri? get validReservationUri {
+    final uri = Uri.tryParse(reservationUrl);
+    if (uri == null || !(uri.isScheme('https') || uri.isScheme('http'))) {
+      return null;
     }
-    return '${_formatDistance(distance)} 거리에 있어요.';
+    return uri;
   }
 
   String? get validThumbnailUrl {
     final uri = Uri.tryParse(thumbnailUrl);
     if (uri == null || !(uri.isScheme('https') || uri.isScheme('http'))) {
-      return null;
+      return validImageUrls.isEmpty ? null : validImageUrls.first;
     }
     return thumbnailUrl;
   }
+
+  List<String> get validImageUrls => imageUrls.where((url) {
+    final uri = Uri.tryParse(url);
+    return uri != null && (uri.isScheme('https') || uri.isScheme('http'));
+  }).toList();
 
   List<String> get tags {
     final labels = facility
@@ -6843,19 +8731,6 @@ class Campsite {
     ];
     final rating = values.reduce((a, b) => a + b) / values.length;
     return rating.toStringAsFixed(1);
-  }
-
-  List<String> get previewReviews {
-    if (facility.isEmpty) {
-      return <String>[
-        '아직 시설 정보가 많지 않아요. 방문 전 예약처에서 최신 정보를 확인해보세요.',
-        '거리와 기본 편의시설을 기준으로 먼저 비교해보세요.',
-      ];
-    }
-    return <String>[
-      '${tags.first} 조건을 중요하게 보는 캠퍼에게 맞는 곳이에요.',
-      '시설 수와 위치 정보를 함께 확인하고 준비하면 좋아요.',
-    ];
   }
 
   int facilityScore(String code) {
@@ -6942,6 +8817,7 @@ class CampPost {
   final String title;
   final String content;
   final DateTime? createdAt;
+
   /// 게시글 작성자 ID (서버가 내려줄 때만 사용)
   final int? authorId;
 

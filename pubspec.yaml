@@ -2,7 +2,7 @@ name: campon
 description: "CampOn - 캠핑장 추천과 준비를 돕는 모바일 앱."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.2+4
 
 environment:
   sdk: ^3.11.5
@@ -54,6 +54,8 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
+  # 지도 이동 디바운스를 실제 시간 없이 검증하려고 쓴다. 이미 transitive로 들어와 있던 패키지다.
+  fake_async: ^1.3.3
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -77,6 +79,7 @@ flutter:
 
   assets:
     - assets/illustrations/
+    - assets/images/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -108,3 +111,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+dependency_overrides:
+  # kakao_map_plugin 0.4.0's KakaoMap.didUpdateWidget re-injects JS on every
+  # rebuild without checking whether the WebView/SDK has finished loading,
+  # causing FWFEvaluateJavaScriptError before the map is ready. Patched copy
+  # guards with the plugin's own (unused) _isMapReady flag.
+  kakao_map_plugin:
+    path: third_party/kakao_map_plugin

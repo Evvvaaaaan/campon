@@ -43,15 +43,15 @@ void main() {
 
     final toggle = find.ancestor(
       of: find.text('야간 캠핑 테마'),
-      matching: find.byType(ToggleSettingCard),
+      matching: find.byType(ToggleSettingRow),
     );
-    expect(tester.widget<ToggleSettingCard>(toggle).value, isFalse);
+    expect(tester.widget<ToggleSettingRow>(toggle).value, isFalse);
 
     await tester.tap(find.text('야간 캠핑 테마'));
     await tester.pumpAndSettle();
 
     expect(CampColors.isDark, isTrue);
-    expect(tester.widget<ToggleSettingCard>(toggle).value, isTrue);
+    expect(tester.widget<ToggleSettingRow>(toggle).value, isTrue);
   });
 
   testWidgets('다크 팔레트는 디자인의 야간 토큰 값을 쓴다', (tester) async {

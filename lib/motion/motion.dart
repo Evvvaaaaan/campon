@@ -52,9 +52,18 @@ class Shimmer extends StatelessWidget {
 
 /// Wraps a tappable widget with a subtle scale-down press feedback.
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, required this.onTap});
+  const Pressable({
+    super.key,
+    required this.child,
+    required this.onTap,
+    this.behavior,
+  });
   final Widget child;
   final VoidCallback onTap;
+
+  /// 배경색 없는 자식을 감쌀 때 [HitTestBehavior.opaque]를 준다.
+  /// 기본값(deferToChild)에서는 글자만 있는 줄이 탭을 받지 못한다.
+  final HitTestBehavior? behavior;
 
   @override
   State<Pressable> createState() => _PressableState();
@@ -70,6 +79,7 @@ class _PressableState extends State<Pressable> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: widget.behavior,
       onTapDown: (_) => _set(0.96),
       onTapUp: (_) => _set(1),
       onTapCancel: () => _set(1),

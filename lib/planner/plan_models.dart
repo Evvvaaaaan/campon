@@ -1,4 +1,6 @@
-enum WeatherGrade { good, caution, risk }
+enum WeatherGrade { good, caution, risk, unavailable }
+
+enum PlanGenerationSource { ai, fallback }
 
 WeatherGrade weatherGradeFrom(String? s) {
   switch (s) {
@@ -6,13 +8,19 @@ WeatherGrade weatherGradeFrom(String? s) {
       return WeatherGrade.risk;
     case 'caution':
       return WeatherGrade.caution;
-    default:
+    case 'good':
       return WeatherGrade.good;
+    default:
+      return WeatherGrade.unavailable;
   }
 }
 
 class PlanSummary {
-  PlanSummary({required this.title, required this.mood, required this.oneLiner});
+  PlanSummary({
+    required this.title,
+    required this.mood,
+    required this.oneLiner,
+  });
   final String title;
   final String mood;
   final String oneLiner;
@@ -28,10 +36,10 @@ class PlanWeather {
     required this.advice,
   });
   final WeatherGrade grade;
-  final int nightLowC;
-  final int precipPct;
-  final int diurnalRangeC;
-  final double windMs;
+  final int? nightLowC;
+  final int? precipPct;
+  final int? diurnalRangeC;
+  final double? windMs;
   final String advice;
 }
 
@@ -48,17 +56,23 @@ class PlanChecklistCategory {
 }
 
 class PlanTimelineItem {
-  PlanTimelineItem({required this.time, required this.title, required this.detail});
+  PlanTimelineItem({
+    required this.time,
+    required this.title,
+    required this.detail,
+  });
   final String time;
   final String title;
   final String detail;
 }
 
-String _s(dynamic v, [String d = '']) => v is String && v.trim().isNotEmpty ? v : d;
+String _s(dynamic v, [String d = '']) =>
+    v is String && v.trim().isNotEmpty ? v : d;
 int _i(dynamic v, [int d = 0]) => v is num ? v.round() : d;
 double _d(dynamic v, [double d = 0]) => v is num ? v.toDouble() : d;
-List<String> _sl(dynamic v) =>
-    v is List ? v.map((e) => _s(e)).where((e) => e.isNotEmpty).toList() : <String>[];
+List<String> _sl(dynamic v) => v is List
+    ? v.map((e) => _s(e)).where((e) => e.isNotEmpty).toList()
+    : <String>[];
 
 class CampPlan {
   CampPlan({
@@ -67,14 +81,19 @@ class CampPlan {
     required this.campsites,
     required this.checklist,
     required this.timeline,
+    this.source = PlanGenerationSource.fallback,
   });
   final PlanSummary summary;
   final PlanWeather weather;
   final List<PlanCampsite> campsites;
   final List<PlanChecklistCategory> checklist;
   final List<PlanTimelineItem> timeline;
+  final PlanGenerationSource source;
 
-  factory CampPlan.fromJson(Map<String, dynamic> j) {
+  factory CampPlan.fromJson(
+    Map<String, dynamic> j, {
+    PlanGenerationSource source = PlanGenerationSource.fallback,
+  }) {
     final w = (j['weather'] as Map?)?.cast<String, dynamic>() ?? const {};
     final s = (j['summary'] as Map?)?.cast<String, dynamic>() ?? const {};
     return CampPlan(
@@ -85,39 +104,61 @@ class CampPlan {
       ),
       weather: PlanWeather(
         grade: weatherGradeFrom(w['grade'] as String?),
-        nightLowC: _i(w['nightLowC'], 12),
-        precipPct: _i(w['precipPct'], 20),
-        windMs: _d(w['windMs'], 3),
-        diurnalRangeC: _i(w['diurnalRangeC'], 9),
-        advice: _s(w['advice'], '날씨 정보를 확인하세요.'),
+        nightLowC: w['nightLowC'] is num ? _i(w['nightLowC']) : null,
+        precipPct: w['precipPct'] is num ? _i(w['precipPct']) : null,
+        windMs: w['windMs'] is num ? _d(w['windMs']) : null,
+        diurnalRangeC: w['diurnalRangeC'] is num
+            ? _i(w['diurnalRangeC'])
+            : null,
+        advice: _s(w['advice'], '날씨 예보를 확인할 수 없어요. 출발 전에 최신 예보를 확인해주세요.'),
       ),
       campsites: (j['campsites'] as List? ?? const [])
-          .map((e) => PlanCampsite(name: _s((e as Map)['name']), reason: _s(e['reason'])))
+          .map(
+            (e) => PlanCampsite(
+              name: _s((e as Map)['name']),
+              reason: _s(e['reason']),
+            ),
+          )
           .where((e) => e.name.isNotEmpty)
           .toList(),
       checklist: (j['checklist'] as List? ?? const [])
-          .map((e) => PlanChecklistCategory(
-              category: _s((e as Map)['category']), items: _sl(e['items'])))
+          .map(
+            (e) => PlanChecklistCategory(
+              category: _s((e as Map)['category']),
+              items: _sl(e['items']),
+            ),
+          )
           .where((e) => e.category.isNotEmpty && e.items.isNotEmpty)
           .toList(),
       timeline: (j['timeline'] as List? ?? const [])
-          .map((e) => PlanTimelineItem(
+          .map(
+            (e) => PlanTimelineItem(
               time: _s((e as Map)['time']),
               title: _s(e['title']),
-              detail: _s(e['detail'])))
+              detail: _s(e['detail']),
+            ),
+          )
           .where((e) => e.time.isNotEmpty)
           .toList(),
+      source: source,
     );
   }
 }
 
 class PlanCandidate {
-  PlanCandidate({required this.name, required this.facility, required this.equipmentRental});
+  PlanCandidate({
+    required this.name,
+    required this.facility,
+    required this.equipmentRental,
+  });
   final String name;
   final List<String> facility;
   final List<String> equipmentRental;
-  Map<String, dynamic> toJson() =>
-      {'name': name, 'facility': facility, 'equipmentRental': equipmentRental};
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'facility': facility,
+    'equipmentRental': equipmentRental,
+  };
 }
 
 class PlanInput {
@@ -147,19 +188,19 @@ class PlanInput {
   final List<PlanCandidate> candidates;
 
   Map<String, dynamic> toRequestJson() => {
-        'query': query,
-        'context': {
-          'date': date,
-          'people': people,
-          'hasCar': hasCar,
-          'experience': experience,
-          'region': region,
-          'preferences': preferences,
-          'equipment': equipment,
-        },
-        'coords': {'lat': lat, 'lon': lon},
-        'candidates': candidates.map((c) => c.toJson()).toList(),
-      };
+    'query': query,
+    'context': {
+      'date': date,
+      'people': people,
+      'hasCar': hasCar,
+      'experience': experience,
+      'region': region,
+      'preferences': preferences,
+      'equipment': equipment,
+    },
+    'coords': {'lat': lat, 'lon': lon},
+    'candidates': candidates.map((c) => c.toJson()).toList(),
+  };
 }
 
 CampPlan buildLocalFallbackPlan(PlanInput input) {
@@ -171,30 +212,58 @@ CampPlan buildLocalFallbackPlan(PlanInput input) {
       oneLiner: '${input.date} ${input.people}명, ${input.region} 캠핑 플랜입니다.',
     ),
     weather: PlanWeather(
-      grade: WeatherGrade.good,
-      nightLowC: 14,
-      precipPct: 15,
-      windMs: 3,
-      diurnalRangeC: 9,
-      advice: '날씨가 안정적이에요. 편안한 캠핑이 예상됩니다.',
+      grade: WeatherGrade.unavailable,
+      nightLowC: null,
+      precipPct: null,
+      windMs: null,
+      diurnalRangeC: null,
+      advice: '날씨 예보를 확인할 수 없어요. 출발 전에 최신 예보를 확인해주세요.',
     ),
     campsites: names.isNotEmpty
         ? names
-            .map((s) => PlanCampsite(name: s.name, reason: '${input.region} 지역, 접근성과 시설이 무난해요.'))
-            .toList()
-        : [PlanCampsite(name: '${input.region} 인근 캠핑장', reason: '지역 조건에 맞춘 추천입니다.')],
+              .map(
+                (s) => PlanCampsite(
+                  name: s.name,
+                  reason: '${input.region} 지역, 접근성과 시설이 무난해요.',
+                ),
+              )
+              .toList()
+        : [
+            PlanCampsite(
+              name: '${input.region} 인근 캠핑장',
+              reason: '지역 조건에 맞춘 추천입니다.',
+            ),
+          ],
     checklist: [
-      PlanChecklistCategory(category: '텐트·취침', items: ['텐트', '그라운드시트', '침낭', '매트']),
+      PlanChecklistCategory(
+        category: '텐트·취침',
+        items: ['텐트', '그라운드시트', '침낭', '매트'],
+      ),
       PlanChecklistCategory(category: '취사', items: ['버너', '코펠', '식수', '아이스박스']),
       PlanChecklistCategory(category: '의류', items: ['여벌옷', '양말', '모자']),
-      PlanChecklistCategory(category: '안전', items: ['구급킷', '헤드랜턴', '보조배터리', '비상 우비']),
+      PlanChecklistCategory(
+        category: '안전',
+        items: ['구급킷', '헤드랜턴', '보조배터리', '비상 우비'],
+      ),
     ],
     timeline: [
-      PlanTimelineItem(time: '14:00', title: '도착·설치', detail: '입실 후 텐트와 타프를 설치해요.'),
-      PlanTimelineItem(time: '17:00', title: '저녁 준비', detail: '해지기 전 취사와 식사를 마쳐요.'),
+      PlanTimelineItem(
+        time: '14:00',
+        title: '도착·설치',
+        detail: '입실 후 텐트와 타프를 설치해요.',
+      ),
+      PlanTimelineItem(
+        time: '17:00',
+        title: '저녁 준비',
+        detail: '해지기 전 취사와 식사를 마쳐요.',
+      ),
       PlanTimelineItem(time: '19:30', title: '캠프파이어', detail: '불멍과 휴식 시간.'),
       PlanTimelineItem(time: '22:00', title: '취침', detail: '보온에 유의해요.'),
-      PlanTimelineItem(time: '10:00', title: '철수', detail: '장비를 말리고 정리 후 퇴실해요.'),
+      PlanTimelineItem(
+        time: '10:00',
+        title: '철수',
+        detail: '장비를 말리고 정리 후 퇴실해요.',
+      ),
     ],
   );
 }

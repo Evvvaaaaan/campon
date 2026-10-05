@@ -11,15 +11,8 @@ void main() {
     await tester.tap(find.text('건너뛰기'));
     await tester.pumpAndSettle();
 
-    // 온보딩: 날짜 → 이동수단/숙련도 → 보유 장비(텐트)
-    // 홈 상단에 "오늘 밤" 카드가 있어 추천 카드는 스크롤해야 보인다.
-    await tester.dragUntilVisible(
-      find.text('추천 시작'),
-      find.byType(ListView),
-      const Offset(0, -160),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('추천 시작'));
+    // 새 홈 CTA에서 온보딩: 날짜 → 이동수단/숙련도 → 보유 장비(텐트)
+    await tester.tap(find.text('조건부터 추천받기'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('날짜를 선택해주세요'));
@@ -68,6 +61,13 @@ class _StubApi extends CampOnApi {
 
   @override
   Future<bool> restoreSession() async => true;
+
+  @override
+  Future<List<Campsite>> fetchNearby({
+    required CampRegion region,
+    required int page,
+    required int size,
+  }) async => const <Campsite>[];
 
   @override
   Future<List<Campsite>> fetchRecommendations({

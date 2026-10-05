@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'plan_models.dart';
 
 typedef PlanFetcher = Future<String> Function(Uri url, String body);
@@ -19,7 +21,7 @@ Future<String> _httpFetcher(Uri url, String body) async {
     req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
     req.add(utf8.encode(body));
     final res = await req.close();
-    return res.transform(utf8.decoder).join();
+    return await res.transform(utf8.decoder).join();
   } finally {
     client.close(force: true);
   }
@@ -27,8 +29,8 @@ Future<String> _httpFetcher(Uri url, String body) async {
 
 class PlanService {
   PlanService({PlanFetcher? fetcher, String? baseUrl})
-      : _fetcher = fetcher ?? _httpFetcher,
-        _baseUrl = baseUrl ?? _defaultBase;
+    : _fetcher = fetcher ?? _httpFetcher,
+      _baseUrl = baseUrl ?? _defaultBase;
 
   final PlanFetcher _fetcher;
   final String _baseUrl;
@@ -39,9 +41,16 @@ class PlanService {
       final raw = await _fetcher(url, jsonEncode(input.toRequestJson()));
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
       final plan = decoded['plan'];
-      if (plan is Map<String, dynamic>) return CampPlan.fromJson(plan);
+      if (plan is Map<String, dynamic>) {
+        final source = decoded['source'] == 'llm'
+            ? PlanGenerationSource.ai
+            : PlanGenerationSource.fallback;
+        return CampPlan.fromJson(plan, source: source);
+      }
+      debugPrint('[PlanService] 응답에 plan 필드가 없어 로컬 폴백을 사용합니다: $raw');
       return buildLocalFallbackPlan(input);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[PlanService] AI 플랜 요청 실패, 로컬 폴백을 사용합니다: $e');
       return buildLocalFallbackPlan(input);
     }
   }

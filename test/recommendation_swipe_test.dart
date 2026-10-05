@@ -6,6 +6,43 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   tearDown(() => CampColors.apply(CampPalette.light));
 
+  testWidgets('추천 카드는 캠핑장 이미지를 표시한다', (tester) async {
+    await tester.pumpWidget(_host(_sites(1)));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CampsiteCoverImage), findsOneWidget);
+    expect(
+      find.byKey(const Key('recommendation-region-map-image')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('추천 지역 선택 지도는 지정된 지도 이미지를 표시한다', (tester) async {
+    CampRegion? changed;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RegionPicker(
+            selected: CampData.regions.first,
+            onChanged: (region) => changed = region,
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(
+      find.byKey(const Key('recommendation-region-map-image')),
+    );
+    expect(image.image, isA<AssetImage>());
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/images/recommendation_map.png',
+    );
+
+    await tester.tap(find.text('강원'));
+    expect(changed?.name, '강원');
+  });
+
   testWidgets('X를 누르면 다음 캠핑장으로 넘어간다', (tester) async {
     await tester.pumpWidget(_host(_sites(3)));
     await tester.pumpAndSettle();

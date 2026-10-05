@@ -1,6 +1,7 @@
 import 'package:campon/campsites/favorites_store.dart';
 import 'package:campon/main.dart';
 import 'package:campon/theme.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -16,7 +17,11 @@ void main() {
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
 
-    await tester.scrollUntilVisible(find.text('1곳을 이 기기에 저장해 두었어요.'), 300);
+    await tester.scrollUntilVisible(
+      find.text('1곳을 이 기기에 저장해 두었어요.'),
+      300,
+      scrollable: _homeScroll(),
+    );
     expect(find.text('1곳을 이 기기에 저장해 두었어요.'), findsOneWidget);
 
     await _openFavorites(tester);
@@ -47,7 +52,11 @@ void main() {
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
 
-    await tester.scrollUntilVisible(find.text('마음에 드는 캠핑장에 하트를 눌러보세요.'), 300);
+    await tester.scrollUntilVisible(
+      find.text('마음에 드는 캠핑장에 하트를 눌러보세요.'),
+      300,
+      scrollable: _homeScroll(),
+    );
     expect(find.text('마음에 드는 캠핑장에 하트를 눌러보세요.'), findsOneWidget);
 
     await _openFavorites(tester);
@@ -57,9 +66,7 @@ void main() {
 
   testWidgets('상세에서 하트를 해제하면 목록에서 사라진다', (tester) async {
     final store = InMemoryFavoritesStore([_site(1, '저장된 캠핑장')]);
-    await tester.pumpWidget(
-      CampOnApp(api: _StubApi(), favoritesStore: store),
-    );
+    await tester.pumpWidget(CampOnApp(api: _StubApi(), favoritesStore: store));
     await tester.pumpAndSettle();
     await _skipTutorial(tester);
 
@@ -87,10 +94,18 @@ Future<void> _skipTutorial(WidgetTester tester) async {
 }
 
 Future<void> _openFavorites(WidgetTester tester) async {
-  await tester.scrollUntilVisible(find.text('찜 목록 보기'), 300);
+  await tester.scrollUntilVisible(
+    find.text('찜 목록 보기'),
+    300,
+    scrollable: _homeScroll(),
+  );
   await tester.tap(find.text('찜 목록 보기'));
   await tester.pumpAndSettle();
 }
+
+Finder _homeScroll() => find
+    .descendant(of: find.byType(HomeScreen), matching: find.byType(Scrollable))
+    .first;
 
 Campsite _site(int id, String name) => Campsite.fromJson({
   'campsiteId': id,
@@ -112,8 +127,9 @@ class _StubApi extends CampOnApi {
   }) async => [_site(1, '저장된 캠핑장')];
 
   @override
-  Future<List<Campsite>> fetchAllNearby({required CampRegion region}) async =>
-      [_site(1, '저장된 캠핑장')];
+  Future<List<Campsite>> fetchAllNearby({required CampRegion region}) async => [
+    _site(1, '저장된 캠핑장'),
+  ];
 }
 
 class _FailingApi extends CampOnApi {

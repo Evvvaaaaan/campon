@@ -24,6 +24,10 @@ class LocationPoint {
   final double lon;
 }
 
+/// 두 좌표 사이 직선 거리(m). Geolocator의 검증된 계산을 그대로 쓴다.
+double distanceBetweenMeters(LocationPoint a, LocationPoint b) =>
+    Geolocator.distanceBetween(a.lat, a.lon, b.lat, b.lon);
+
 class LocationBlockedException implements Exception {
   const LocationBlockedException(this.reason, this.message);
 

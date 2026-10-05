@@ -42,7 +42,7 @@ String _clearForecastJson({double cloud = 4}) {
 
 Widget _hostCard({
   required TonightService service,
-  Future<String?> Function()? destinationLoader,
+  Future<NightDestination?> Function()? destinationLoader,
   VoidCallback? onExplore,
   NightPreviewRequested? onPreview,
 }) => MaterialApp(
@@ -105,11 +105,12 @@ void main() {
     expect(find.text('이 밤 미리 보기'), findsOneWidget);
   });
 
-  testWidgets('지역명으로 시작해 캠핑장 이름이 오면 바꿔 단다', (tester) async {
+  testWidgets('대표 캠핑장이 있으면 그 이름을 단다', (tester) async {
     await tester.pumpWidget(
       _hostCard(
         service: TonightService(fetcher: (_) async => _clearForecastJson()),
-        destinationLoader: () async => '홍천 별빛캠핑장',
+        destinationLoader: () async =>
+            NightDestination(name: '홍천 별빛캠핑장', lat: 37.7, lon: 127.9),
       ),
     );
     await _settleCard(tester);
@@ -117,16 +118,46 @@ void main() {
     expect(find.textContaining('홍천 별빛캠핑장'), findsOneWidget);
   });
 
-  testWidgets('캠핑장 이름을 못 가져오면 지역명을 쓴다', (tester) async {
+  testWidgets('대표 캠핑장이 있으면 그 좌표로 예보를 받는다', (tester) async {
+    final asked = <Uri>[];
     await tester.pumpWidget(
       _hostCard(
-        service: TonightService(fetcher: (_) async => _clearForecastJson()),
+        service: TonightService(
+          fetcher: (uri) async {
+            asked.add(uri);
+            return _clearForecastJson();
+          },
+        ),
+        destinationLoader: () async =>
+            NightDestination(name: '홍천 별빛캠핑장', lat: 37.7, lon: 127.9),
+      ),
+    );
+    await _settleCard(tester);
+
+    // 지역 중심점(37.82/128.16)이 아니라 캠핑장 좌표로 물어야 한다.
+    expect(asked, isNotEmpty);
+    expect(asked.first.queryParameters['latitude'], '37.7000');
+    expect(asked.first.queryParameters['longitude'], '127.9000');
+  });
+
+  testWidgets('대표 캠핑장이 없으면 지역명과 지역 좌표를 쓴다', (tester) async {
+    final asked = <Uri>[];
+    await tester.pumpWidget(
+      _hostCard(
+        service: TonightService(
+          fetcher: (uri) async {
+            asked.add(uri);
+            return _clearForecastJson();
+          },
+        ),
         destinationLoader: () async => null,
       ),
     );
     await _settleCard(tester);
 
     expect(find.textContaining('강원 밤하늘'), findsOneWidget);
+    expect(asked.first.queryParameters['latitude'], '37.8200');
+    expect(asked.first.queryParameters['longitude'], '128.1600');
   });
 
   testWidgets('위치 권한이 있으면 지금 기온과의 대비를 덧붙인다', (tester) async {
@@ -181,7 +212,8 @@ void main() {
     await tester.pumpWidget(
       _hostCard(
         service: TonightService(fetcher: (_) async => _clearForecastJson()),
-        destinationLoader: () async => '홍천 별빛캠핑장',
+        destinationLoader: () async =>
+            NightDestination(name: '홍천 별빛캠핑장', lat: 37.7, lon: 127.9),
         onPreview: (night, place, _) {
           handed = night;
           handedPlace = place;

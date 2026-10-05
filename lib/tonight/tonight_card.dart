@@ -36,8 +36,8 @@ class TonightCard extends StatefulWidget {
   final NightPreviewRequested onPreview;
   final TonightService? service;
 
-  /// 그 지역의 대표 캠핑장 이름을 가져온다. 실패하면 지역명을 쓴다.
-  final Future<String?> Function()? destinationLoader;
+  /// 그 지역의 대표 캠핑장을 가져온다. 없으면 지역명과 지역 좌표를 쓴다.
+  final Future<NightDestination?> Function()? destinationLoader;
 
   @override
   State<TonightCard> createState() => _TonightCardState();
@@ -63,20 +63,25 @@ class _TonightCardState extends State<TonightCard> {
   }
 
   Future<void> _load() async {
-    final forecast = await _service.load(lat: widget.lat, lon: widget.lon);
+    // 목적지를 먼저 확인하고 그 좌표로 예보를 받는다. 카드에 캠핑장 이름을
+    // 달아 놓고 수치는 지역 중심점으로 계산하면 둘이 다른 곳을 가리킨다.
+    final destination = await widget.destinationLoader?.call();
     if (!mounted) return;
-    setState(() => _forecast = forecast);
+    final forecast = await _service.load(
+      lat: destination?.lat ?? widget.lat,
+      lon: destination?.lon ?? widget.lon,
+    );
+    if (!mounted) return;
+    setState(() {
+      _forecast = forecast.copyWith(
+        destinationName: destination?.name.isNotEmpty == true
+            ? destination!.name
+            : null,
+      );
+    });
 
-    // 캠핑장 이름과 현재 위치 기온은 곁들이는 정보다. 카드가 먼저 뜬 뒤에 채운다.
-    await Future.wait([_fillDestination(), _fillMyTemperature()]);
-  }
-
-  Future<void> _fillDestination() async {
-    final loader = widget.destinationLoader;
-    if (loader == null) return;
-    final name = await loader();
-    if (!mounted || name == null || name.isEmpty) return;
-    setState(() => _forecast = _forecast?.copyWith(destinationName: name));
+    // 현재 위치 기온은 곁들이는 정보다. 카드가 먼저 뜬 뒤에 채운다.
+    await _fillMyTemperature();
   }
 
   Future<void> _fillMyTemperature() async {

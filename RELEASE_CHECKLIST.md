@@ -1,7 +1,9 @@
 # CampOn App Store 출시 체크리스트
 
-최종 검증: 2026-08-01. 아래 상태는 모두 이 날짜에 실제로 실행하거나 파일을 열어 확인한 결과다.
+최종 검증: 2026-08-08. 아래 상태는 모두 이 날짜에 실제로 실행하거나 파일을 열어 확인한 결과다.
 추측으로 적은 항목은 없다. 다시 확인할 때는 각 항목의 "확인 방법"을 그대로 실행한다.
+(2026-08-01 판 이후 변경분: 즐겨찾기·커뮤니티 신고/차단 기능이 추가로 커밋됐고, 백엔드가
+`PostResponseDto`에 `authorId`를 추가했다. 아래에 반영했다.)
 
 ---
 
@@ -92,9 +94,19 @@ Guideline 5.1.1 리젝 사유였다.
 주입되지 않은 빌드는 앱 안의 문서를 열고, `PRIVACY_POLICY_URL` 또는 `TERMS_OF_SERVICE_URL`이
 주입된 릴리스 빌드는 공개 문서를 연다 (`lib/main.dart`의 `LegalLinkRow`).
 
-- [ ] **개인정보 처리방침과 이용약관을 실제 URL에 게시한다.** App Store Connect 제출 시 개인정보
-      처리방침 URL은 필수다. 게시 원문은 `docs/privacy-policy.md`와 `docs/terms-of-service.md`다.
-      공개본과 앱 내 문서의 운영자명·문의 메일·보유 기간을 실제 운영 정책과 일치시킨다.
+- [x] **개인정보 처리방침 공개 URL 확보함 (2026-08-08).**
+      `https://agreeable-canary-131.notion.site/3a7214c948c380d68380f982437ddd7d` —
+      Notion에서 이미 작성·게시(Publish to web)되어 있는 것을 확인했고, 쿠키 없는 `curl`로
+      로그인 없이 열리는 것도 확인했다(`http=200`). 릴리스 빌드의 `PRIVACY_POLICY_URL`로 이
+      값을 쓰면 된다.
+- [x] **Notion 게시본과 저장소 문서의 담당자 정보 불일치를 해소함.** 이전에는 담당자
+      이메일이 Notion `shm040806@gmail.com`과 `docs/privacy-policy.md`/앱 설정
+      `vmfhrmfoald36@gmail.com`으로 서로 달랐다. Notion 게시본(서하민 /
+      shm040806@gmail.com / 010-4864-1548)을 최종본으로 확정해, `docs/privacy-policy.md`,
+      `lib/main.dart`의 개인정보 처리방침 본문, `docs/terms-of-service.md`,
+      `LegalConfig.contactEmail` 기본값(`LEGAL_CONTACT_EMAIL`)을 모두 이 정보로 맞췄다.
+- [ ] 이용약관도 같은 방식으로 실제 URL에 게시한다. 게시 원문은 `docs/terms-of-service.md`다.
+      (이번에 확보한 건 개인정보 처리방침뿐이고, 이용약관 공개 URL은 아직 없다.)
 - [ ] **Gemini API 등급을 확인한다.** 무료 등급이면 Google이 입력 내용을 품질 개선에 활용할 수
       있어 처리방침 문구와 App Privacy 답변이 달라질 수 있다. 실제 사용 등급과 Google의 데이터
       취급 조건을 확인해 공개 문서에 반영한다.
@@ -112,8 +124,9 @@ Guideline 5.1.1 리젝 사유였다.
 
 다시 손댈 필요 없다. 괄호 안은 확인 근거다.
 
-- [x] **정적 분석 통과** — `flutter analyze` → `No issues found! (ran in 2.3s)`
-- [x] **테스트 통과** — `flutter test` → `91 tests, All tests passed!`
+- [x] **정적 분석 통과** — `flutter analyze` → `No issues found! (ran in 2.9s)` (2026-08-08 재확인)
+- [x] **테스트 통과** — `flutter test` → `148 tests, All tests passed!` (2026-08-08 재확인, 91 → 148은
+      즐겨찾기·커뮤니티 신고/차단 테스트가 늘어난 것)
 - [x] **회원탈퇴 기능** (Guideline 5.1.1(v) 필수) — 설정 화면에 확인 다이얼로그가 있고
       (`lib/main.dart:2827`) `DELETE /api/v1/users`를 호출한 뒤 제공자 로그아웃과 로컬 세션을
       정리한다 (`lib/main.dart:4494`).
@@ -127,6 +140,7 @@ Guideline 5.1.1 리젝 사유였다.
       `GET /api/v1/directions`에 보내고 있었다(`lib/main.dart`의 `fetchDirections`,
       `lib/location/location_service.dart`). 즉 위치가 실제로 기기 밖으로 나가는데 매니페스트에는
       없었다. 선언이 실제 동작과 다르면 리젝 사유이므로 채웠다.
+
 - [x] **수출 규정 응답** — `ITSAppUsesNonExemptEncryption=false` (Info.plist). 표준 HTTPS만 쓰므로
       맞는 값이다. 이게 있으면 업로드마다 묻는 절차를 건너뛴다.
 - [x] **Sign in with Apple** (Guideline 4.8) — Google·Kakao 소셜 로그인을 제공하므로 필수인데,
@@ -161,6 +175,39 @@ Guideline 5.1.1 리젝 사유였다.
 
 - [ ] **의존성 32개가 구버전이다.** `flutter_secure_storage 9.2.4`(10.3.1 있음) 등. 출시 직전
       메이저 업그레이드는 위험하니 출시 후에 처리한다.
+- [x] **"주변 캠핑장" 지도 탭이 빈 화면으로 뜨던 문제를 고쳤다.** 2026-08-08 실기기(iPhone)에서
+      최초 재현: 지도 탭을 열면 카카오맵이 전혀 렌더링되지 않았다. `nearby` API 자체는 정상
+      응답하므로(직접 호출로 확인, `radius<=20000`에서 목록 정상 반환) 문제는 `kakao_map_plugin`의
+      WebView 로딩 단계였다. 원인이 두 겹이라 두 번에 걸쳐 고쳤다.
+
+      **1차 원인 (해결됨): `baseUrl`이 없어 origin이 opaque였다.** `AuthRepository.initialize`를
+      `baseUrl` 없이 호출하면 iOS WKWebView가 HTML을 opaque origin으로 로드해서 카카오맵 JS
+      SDK(`dapi.kakao.com/v2/maps/sdk.js`) 요청의 `Referer`가 문자열 `"null"`로 찍힌다. 카카오는
+      이를 미등록 도메인으로 보고 401 `AccessDeniedError: domain mismatched! caller=null`을
+      돌려준다. `AuthConfig.kakaoMapBaseUrl`(dart-define `KAKAO_MAP_BASE_URL`)을 추가해 해결했고,
+      카카오 디벨로퍼스 콘솔의 "플랫폼 > Web" 등록도 완료되었다(2026-08-20 확인:
+      `Referer: https://localhost/`와 `http://localhost/` 모두 200, 미등록 도메인은 여전히 401).
+
+      **2차 원인 (해결됨): `baseUrl`이 `http`라 지도 엔진이 ATS에 막혔다.** 콘솔 등록이 끝난
+      뒤에도 지도가 그대로 빈 화면이었다. `sdk.js`는 로더 스텁일 뿐이고, 그 안에서
+      `s = "https:" == location.protocol ? "https:" : "http:"`로 실제 지도 엔진
+      (`t1.daumcdn.net/mapjsapi/js/main/4.5.26/kakao.js`)과 타일(`mts.daumcdn.net`)의 주소를
+      만든다. `baseUrl`이 `http://localhost`면 엔진을 평문 HTTP로 받으려 하는데 iOS ATS가
+      이를 차단한다(`ios/Runner/Info.plist`에 `NSAppTransportSecurity` 예외 없음. 안드로이드도
+      API 28+ 기본 cleartext 차단이라 동일). 그래서 `kakao.maps.load` 콜백이 끝내 호출되지 않고
+      `window.kakao`만 정의된 채 지도가 그려지지 않는다.
+
+      **재현/검증 (2026-08-20, iPhone 17 시뮬레이터):** 같은 페이지를 `baseUrl`만 바꿔 나란히
+      띄우는 프로브 앱으로 A/B 확인 —
+      `http://localhost` → `kakao.maps.load` 콜백이 10초 안에 호출되지 않음(빈 화면),
+      `https://localhost` → `map created, center=(37.566…, 126.977…)`.
+      서버 쪽은 http/https 둘 다 200이므로 차이는 순수하게 클라이언트의 평문 차단이다.
+
+      **조치:** `AuthConfig.kakaoMapBaseUrl`의 기본값을 `https://localhost`로 바꾸고
+      `dart_defines.json`도 맞췄다. `KAKAO_MAP_BASE_URL`을 덮어쓸 때도 **반드시 `https://`**를
+      써야 하며, 그 도메인이 콘솔의 "플랫폼 > Web"에 등록되어 있어야 한다.
+      확인 방법: `curl -s -o /dev/null -w "%{http_code}" -H "Referer: https://localhost/" "https://dapi.kakao.com/v2/maps/sdk.js?appkey=$KAKAO_JAVASCRIPT_KEY"` → 200이면 등록 완료.
+
 
 ---
 
@@ -170,9 +217,13 @@ A 블로커를 모두 해결한 뒤에 진행한다.
 
 1. [ ] `pubspec.yaml`의 `version`을 확정한다 (현재 `1.0.0+1`). 재업로드할 때마다 빌드 번호를 올려야 한다.
 2. [ ] 운영 dart-define 값을 확정한다. `AUTH_LOGIN_NOTES.md` 58행에 로그인 관련 목록이 있다.
-       `KAKAO_NATIVE_APP_KEY`, `KAKAO_JAVASCRIPT_KEY`, `GOOGLE_CLIENT_ID`,
+       `KAKAO_NATIVE_APP_KEY`, `KAKAO_JAVASCRIPT_KEY`, `KAKAO_MAP_BASE_URL`(카카오 콘솔에
+       이미 다른 도메인을 등록해 뒀다면 기본값 `https://localhost` 대신 그 값으로 맞춘다. 반드시
+       `https://`여야 한다 — C절의 지도 빈 화면 항목 참고), `GOOGLE_CLIENT_ID`,
        `GOOGLE_SERVER_CLIENT_ID`, `APPLE_SERVICE_ID`, `APPLE_REDIRECT_URI`,
-       그리고 A-4의 `PRIVACY_POLICY_URL`, `TERMS_OF_SERVICE_URL`.
+       `PRIVACY_POLICY_URL=https://agreeable-canary-131.notion.site/3a7214c948c380d68380f982437ddd7d`
+       (A-4에서 확보함 — 단, 담당자 이메일·시행일 불일치를 먼저 정리한다), 그리고 아직 없는
+       `TERMS_OF_SERVICE_URL`.
        **`SHOW_DEV_LOGIN`은 절대 넣지 않는다** — 넣으면 개발 계정 로그인 버튼이 심사자에게 노출된다.
        (릴리즈 빌드에서는 `kDebugMode`가 false라 기본적으로 숨겨진다. `lib/main.dart:91`)
 3. [ ] `./scripts/bootstrap.sh`를 실행한다. 이 프로젝트는 iCloud 동기화 폴더 안에 있어
@@ -184,6 +235,7 @@ A 블로커를 모두 해결한 뒤에 진행한다.
 6. [ ] TestFlight에 업로드하고 **실제 기기에서** 로그인 3종(Google/Apple/Kakao)의 성공과 취소를
        각각 확인한다. 시뮬레이터로는 검증되지 않는다.
 7. [ ] 네트워크 실패, 토큰 만료, 빈 캠핑장 목록, 이미지 로딩 실패 상태를 확인한다.
+       [ ] "주변 캠핑장" 지도 탭이 실제로 렌더링되는지 확인한다 (C절의 미해결 지도 버그 참고).
 8. [ ] 작은 화면(iPhone SE)과 큰 화면에서 텍스트 잘림을 확인한다.
 
 ## E. App Store Connect에 입력할 것
@@ -191,10 +243,18 @@ A 블로커를 모두 해결한 뒤에 진행한다.
 앱 레코드를 만들면서 채운다.
 
 - [ ] 앱 이름, 부제, 프로모션 텍스트, 설명, 키워드
-- [ ] 개인정보 처리방침 URL (필수) — `docs/privacy-policy.md`를 공개 HTTPS 주소에 게시한 실제 URL
+- [x] 개인정보 처리방침 URL (필수) — 위 A-4에서 확보함:
+      `https://agreeable-canary-131.notion.site/3a7214c948c380d68380f982437ddd7d`
 - [ ] 지원 URL (필수)
-- [ ] 스크린샷. `screenshots/` 폴더에 6장이 있으나 **App Store 규격 확인이 필요하다**
-      (6.9인치와 6.5인치 필수). 현재 파일은 개발 중 캡처본이다.
+- [ ] 스크린샷. 기존 `screenshots/`의 6장은 App Store 규격에 맞지 않는다(1206×2622px — 6.9인치
+      1320×2868, 6.5인치 1284×2778 어디에도 해당하지 않음). 2026-08-08에 정확한 해상도의
+      시뮬레이터(iPhone 17 Pro Max = 6.9인치, iPhone 12 Pro Max = 6.5인치)로 로그인 화면만
+      새로 찍어 `screenshots/6.9-inch/01_login.png`(1320×2868), `screenshots/6.5-inch/01_login.png`
+      (1284×2778)에 저장해 뒀다. **나머지 5장(홈/둘러보기/체크리스트/설정/추천)은 아직 못 찍었다** —
+      시뮬레이터에서 화면을 넘기려면 이 기기의 손쉬운 사용(Accessibility) 권한이 있어야 하는데
+      권한을 받지 못해 중단했다. 필요하면 이어서 진행한다.
+      **App Store Connect 업로드는 아직 안 했다** — Apple ID 로그인(대개 2단계 인증 포함)이 필요해
+      대신할 수 없다. 위 파일을 앱 레코드의 해당 사이즈 슬롯에 직접 올려야 한다.
 - [ ] App Privacy 설문. `PrivacyInfo.xcprivacy`의 선언(이메일·이름·User ID·정확한 위치·이용자 콘텐츠,
       비추적)과 일치시키되,
       **백엔드가 실제로 저장하는 데이터 기준으로 다시 확인한다.** 앱 매니페스트와 서버 실제 동작이
@@ -202,9 +262,17 @@ A 블로커를 모두 해결한 뒤에 진행한다.
 - [ ] 릴리스 빌드에 `PRIVACY_POLICY_URL`, `TERMS_OF_SERVICE_URL`, `LEGAL_CONTACT_EMAIL`을 설정한다.
       URL이 없을 때에도 앱 내 문서는 열리지만, App Store Connect에는 공개 HTTPS 개인정보 처리방침 URL이
       필요하다.
-- [ ] 커뮤니티를 켠 채로 출시한다면 부적절한 콘텐츠 필터링, 신고, 사용자 차단, 운영자 연락 수단을
-      실제로 제공한다. 현재 앱에는 본인 글 삭제만 있고 신고·차단·사전 필터가 없다.
-- [ ] 연령 등급 설문
+- [x] **커뮤니티 신고·차단** — 2026-08-08 확인. 게시글 더보기 메뉴에 신고(`POST
+    /api/v1/posts/{id}/reports`)와 유저 차단(`POST /api/v1/blocks`)이 구현되어 있고, 차단한
+      유저의 글은 목록에서 즉시 숨겨진다(`lib/main.dart`의 `postMenuActions`,
+      `BlockManagementScreen`). 백엔드가 `PostResponseDto.authorId`를 실제로 내려주는 것을
+      운영 서버에 직접 왕복 호출해 확인했다(`{"id":2,"authorId":1,...}`) — 이전 판에 있던
+      "authorId가 없어 차단 메뉴가 안 뜬다"는 문제는 해소됐다. - [ ] 다만 이건 신고·차단 UI가 "존재"하고 "동작"한다는 것만 확인한 것이다. 신고가 접수된 뒤
+      운영자가 실제로 검토·조치하는 프로세스(백엔드/운영 쪽)는 이 저장소 범위 밖이라 확인할
+      수 없다. Guideline 1.2는 이 처리 프로세스까지 요구하므로 별도로 확인한다. - [ ] 서버가 작성자 닉네임(`authorNickname`)은 아직 내려주지 않아, 차단 관리 화면에는
+      "유저 #7"처럼 번호로만 뜬다. 기능은 동작하지만 UX가 거칠다 —
+      `docs/backend-request-post-author.md`에 요청해 둔 권장 사항 중 닉네임 항목만 남았다.
+- [x] 연령 등급 설문
 - [ ] 심사 메모: 심사자용 테스트 계정을 제공한다. 소셜 로그인만 있는 앱은 심사자가 로그인할 수단이
       없어 Guideline 2.1로 리젝되는 경우가 많다. **이 항목을 빠뜨리지 않는다.**
 
